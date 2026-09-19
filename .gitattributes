@@ -1,0 +1,12 @@
+# Keep LF endings so shell scripts / manifests authored on Windows work in WSL2/Linux.
+* text=auto eol=lf
+
+# Treat binaries as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.img binary
+*.gz binary
+*.xz binary
+*.zip binary

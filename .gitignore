@@ -1,0 +1,42 @@
+# This Windows folder is the coordination + config hub.
+# The huge Halium source tree (~100GB+) and built images live in WSL2, NOT here.
+
+# Built images / large artifacts (keep these out of git)
+*.img
+*.img.xz
+*.zip
+*.tar
+*.tar.gz
+*.tar.xz
+*.gz
+*.bz2
+*.7z
+
+# Downloaded Windows tools/drivers (re-downloadable; keep binaries out of the text repo)
+tools/*.exe
+tools/**/*.exe
+tools/**/*.sys
+tools/**/*.cat
+tools/**/*.dll
+tools/google-usb-driver/
+
+# Device dumps / proprietary blobs (licensing — never commit)
+device-dumps/
+blobs/
+vendor-blobs/
+
+# Large/transient raw logs (curated notes go in docs/porting-log.md)
+logs/*.log
+*.raw.log
+
+# OS / editor cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# device backups (partition images, device-specific; keep local)
+backups/

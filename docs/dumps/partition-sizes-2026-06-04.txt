@@ -1,0 +1,21 @@
+Physical partition sizes — NOT readable from a normal adb shell on this PE13 (user) build.
+
+Attempted 2026-06-04, all DENIED to shell uid 2000:
+  cat /proc/partitions                 -> Permission denied
+  cat /sys/block/mmcblk0/<part>/size   -> Permission denied   (ctx u:object_r:sysfs:s0)
+  cat /sys/class/block/<part>/size     -> Permission denied
+Device is NOT rooted (PixelExperience 13 official, ro.debuggable=0).
+adb reboot recovery -> recovery adb came up UNAUTHORIZED (encrypted /data, no RSA prompt) -> no shell.
+
+by-name -> block-node mapping (this part IS readable, from `ls -la .../by-name/`):
+  boot=mmcblk0p12   system=mmcblk0p13   vendor=mmcblk0p14   recovery=mmcblk0p51
+  cache=mmcblk0p49  persist=mmcblk0p48  userdata=mmcblk0p64  modem=mmcblk0p25
+  dsp=mmcblk0p27    cust=mmcblk0p62     misc=mmcblk0p50
+
+HOW TO GET THE SIZES (Phase 3, flash time):
+  - `fastboot getvar all`  (needs the Windows fastboot driver — Task #7 / tools/zadig-2.9.exe), or
+  - a root recovery (TWRP): `adb shell cat /proc/partitions`.
+
+NOTE: retrofit-dynamic does NOT change the physical GPT, so physical system/vendor keep their
+factory sizes ~ the documented BoardConfig build limits (system 3 GB, vendor ~0.8 GB). Building can
+proceed against those; fastboot getvar is just the final confirmation.

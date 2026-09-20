@@ -4,6 +4,30 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 — FIX: screen can be turned off (repowerd was stuck on Android `sensorservice`)
+
+**Symptom:** pressing Power never blanked the display; `com.canonical.powerd` and `com.canonical.Unity.Screen`
+had **no owner** on the system bus, so the UI had nothing to ask. `repowerd` ran but its log stopped right
+after `SysfsBacklight: Using backlight /sys/class/leds/lcd-backlight`.
+
+**Diagnosis:** `strace` on the stuck process showed the loop plainly:
+`Waiting for service 'sensorservice' on '/dev/binder'` -> `Service sensorservice didn't start. Returning NULL`.
+repowerd (2017.03) needs Android's framework-level **`sensorservice`** for proximity; Halium has no Android
+framework to launch it, so repowerd never finished init. The binary *does* exist in our build
+(`/android/system/bin/sensorservice`).
+
+**Fix:** start it from Ubuntu's upstart - `device-fixes/sensorservice.conf` -> `/etc/init/sensorservice.conf`
+(rootfs is ro: `mount -o remount,rw /`, install, `remount,ro`). Gotchas hit on the way:
+- `lxc-attach` must use **`--clear-env`**, else the container inherits Ubuntu's `LD_LIBRARY_PATH` and the
+  64-bit binary loads 32-bit libs (`libbinder.so is 32-bit instead of 64-bit`).
+- The trigger is **`start on android`** (an *event* emitted by `lxc-android-config`), **not**
+  `start on started android` - there is no upstart job named `android`.
+- `post-start` restarts repowerd, since repowerd starts (and stalls) before sensorservice is up.
+
+**Verified after reboot:** sensorservice running, repowerd owns both bus names, Power button blanks the screen.
+Rotation still broken (deprioritised by user). Backups taken first: `backups/ut-working-2026-09-20/`
+(ut-data.tgz + boot + vendor, all md5-verified).
+
 ## 2026-09-19 (cont.) — 🎉 DISPLAY + TOUCH WORK — Ubuntu Touch UI up on clover
 
 Built `vendor.img` (`mka vendorimage`, 45 s — blobs were already staged; 800 MB sparse → `simg2img`), copied to

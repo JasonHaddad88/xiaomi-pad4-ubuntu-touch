@@ -4,6 +4,40 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — REVERTED the rotation work; back to a seamless device
+
+**Reported:** "the screen is reaching Ubuntu and going black, and the power button is not turning the
+screen on... for a while it was almost seamless (before the rotation thing)."
+
+That last clause was the answer. Every variation I tried after enabling the sensors was worse than
+the state before them, so the entire rotation change set was reverted:
+
+- `/persist` symlink back to the stock (dangling) `/android/persist`
+- pristine `android-rootfs.img` restored; the patched one kept as `android-rootfs.img.persistfix`
+- `sensorfw.override` restored to stock (md5 `85f53f6f32a513f96139c5ef7bfb814d`)
+
+**Kept**, because they are unrelated to rotation and each fixes a real fault:
+- the audio mixer patch (md5 `84c1545219312a21f8a5b0e26f149c16`)
+- `lxc-android-config.override` — stops plugged-in reboots leaving `/userdata` read-only
+- `audiosystem-passthrough` disabled — stopped the session watchdog rebooting the device
+- `sensorservice.conf`, now as a shell loop upstart can never see exit (watchdog-safe)
+
+**Verified over a 5-minute watch after reboot:** sensorservice registered throughout · repowerd
+pid stable, `com.canonical.Unity.Screen` up · zero new watchdog hits · panel blanks on the normal
+idle timeout and wakes on command · audio patch intact.
+
+**The lesson, bluntly:** the user told me twice that things had been working before this feature. I
+kept iterating on the feature instead of restoring the known-good state and re-approaching from
+there. When a working baseline exists and a change has produced several rounds of regressions, revert
+to the baseline first, then investigate - rather than shipping another variation onto a device
+someone depends on.
+
+**If rotation is attempted again**, the HAL conflict has to be solved first, not worked around. The
+open question worth investigating: whether `sensorfw` can be pointed at android's `sensorservice`
+instead of opening the sensors HAL itself, so there is only ever one HAL client.
+
+---
+
 ## 2026-09-20 (cont.) — RESOLUTION: stability over cleverness (screen-off kept, rotation parked)
 
 **Reported:** "boots to UI, it rotates, yet after around 16 seconds the screen turns off... another

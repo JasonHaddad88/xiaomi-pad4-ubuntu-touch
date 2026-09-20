@@ -27,24 +27,13 @@ to start it, so this job does.
 > then killed it ~16s later to free the HAL for rotation. That blanked the screen ~16 seconds into
 > every session and left the power button dead.
 
-### The rotation trade-off
+### Rotation is REVERTED on the device (2026-09-20)
 `sensorservice` and `sensorfw` **cannot both hold the sensors HAL**: with both running,
-`vendor.sensors-hal-1-0` exits with status 255 every ~5s (71 times in one boot). Proof — the HAL was
-stable from 461s to 806s of one boot, exactly the window when sensorservice was not running, and
-died again the moment it was launched.
-
-So it is one or the other:
-
-| | screen turn-off | rotation |
-|---|---|---|
-| `sensorfw` disabled *(current)* | ✅ | ❌ |
-| `sensorfw` enabled | ❌ power button dead | ✅ |
-
-**To swap to rotation instead:** remove the trailing `manual` line from `/etc/init/sensorfw.override`
-and reboot. Original: `backups/.../sensorfw.override.orig`.
-
-Measured on the current setup: sensorservice stable for 5+ minutes (never restarted), repowerd and
-`com.canonical.Unity.Screen` up throughout, **HAL started once**, no watchdog hits.
+`vendor.sensors-hal-1-0` exits with status 255 every ~5s (71 times in one boot). Every scheme that
+tried to give both — killing sensorservice after repowerd bound, retriggering on repowerd restart —
+produced a worse experience than either alone: the screen blanking ~16s into a session, a dead power
+button, and self-reboots. **The whole rotation change set was reverted** back to the last state the
+device owner described as "almost seamless". See section 3.
 
 **Expected behaviour:** the screen still blanks on its own after ~60-90s of no input — that is Ubuntu
 Touch's normal inactivity timeout, not a fault. The power button wakes it.
@@ -85,21 +74,33 @@ Applied to `/android/vendor/etc/mixer_paths.xml` (vendor partition is read-only:
 
 **Revert:** `sudo cp -a /android/vendor/etc/mixer_paths.xml.bak /android/vendor/etc/mixer_paths.xml`
 
-## 3. Supporting changes for the sensors (persistent, outside the job)
-- **Symlink:** `sudo mount -o remount,rw / && sudo rm /persist && sudo ln -s /mnt/vendor/persist /persist`
-- **System image:** added an empty `/persist` mountpoint. The image was **copied first**, modified
-  while unmounted (`losetup` + `mount` on the copy), `e2fsck -fn`'d clean, then swapped in by rename —
-  the pristine original is still on the device as `/userdata/android-rootfs.img.orig`.
+## 3. Sensors / rotation — REVERTED (kept here for a future attempt)
+These made all 30 sensors work (BMI120 accelerometer + gyroscope, CM3232 light, ROHM hall effect) and
+rotation worked — but they also make the sensors HAL fight `sensorservice`, which costs screen
+turn-off and stability. **Both are reverted on the device.**
 
-Not a firmware problem: there is no SLPI image on this device at all and the SSC runs on the **ADSP**
-(`sysmon-qmi: Connection established between QMI handle and adsp's SSCTL service`), so the
-`slpi_load_fw: SLPI image loading failed` line in dmesg is a red herring.
+What they were:
+- **Symlink:** `/persist -> /mnt/vendor/persist` (stock is `/persist -> /android/persist`, which does
+  not exist; the partition is `mmcblk0p48`). Without it the Qualcomm sensor daemon gates out:
+  `check_sensors_enabled: Sensors enabled = false` -> `Timeout waiting for SMGR service` -> android
+  reports "No Sensors on the device".
+- **System image:** an empty `/persist` mountpoint, so LXC's
+  `lxc.mount.entry = /persist persist bind bind,optional` stops skipping. The patched image is still
+  on the device as **`/userdata/android-rootfs.img.persistfix`**; the pristine one is live.
 
-Result: **30 h/w sensors** — BMI120 accelerometer + gyroscope, CM3232 light sensor, ROHM hall effect.
+Not a firmware problem: there is no SLPI image on this device and the SSC runs on the **ADSP**, so
+`slpi_load_fw: SLPI image loading failed` in dmesg is a red herring.
 
-**Revert:** `sudo mv /userdata/android-rootfs.img.orig /userdata/android-rootfs.img`;
-`sudo rm /persist && sudo ln -s /android/persist /persist` (rootfs remounted rw).
-Backup of the persist partition itself: `backups/.../persist-p48.img.gz` (32 MB, md5 verified).
+**To try rotation again** (expect the screen-turn-off regression unless the HAL conflict is solved
+first):
+```sh
+sudo mount -o remount,rw /
+sudo rm /persist && sudo ln -s /mnt/vendor/persist /persist
+sudo mv /userdata/android-rootfs.img /userdata/android-rootfs.img.pristine
+sudo mv /userdata/android-rootfs.img.persistfix /userdata/android-rootfs.img
+sudo mount -o remount,ro / && sudo reboot
+```
+Backup of the persist partition: `backups/.../persist-p48.img.gz` (32 MB, md5 verified).
 
 ## 4. Reboot while plugged in — `lxc-android-config.override`
 The bootloader sets `androidboot.mode=charger` whenever the USB cable is attached at power-on, and

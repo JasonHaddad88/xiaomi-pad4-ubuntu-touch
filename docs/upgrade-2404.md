@@ -60,7 +60,7 @@ Android's sensorservice is never needed and sensorfw is the single HAL client. T
 The channel is `24.04-1.x/arm64/android9plus/stable`; **android9plus covers Halium 9**, which is what
 we built. Rootfs tarball: 500 MB,
 `rootfs-cf2d4f00668360d35298ea34e1b47b4434b96fb93509dc738906950ef9e261ab.tar.xz`
-(the filename is its sha256 — verify before use).
+(the filename is **not** the file's sha256 — authenticate with the detached `.asc`, see above).
 
 ## Preconditions
 
@@ -131,7 +131,8 @@ so the fallback path itself cannot be damaged by it.
 ## Verification checklist after first 24.04 boot
 
 - [ ] SSH reachable (if not: initrd telnet, roll back)
-- [ ] `com.canonical.Unity.Screen` registered, panel blanks and wakes, backlight non-zero
+- [ ] repowerd's screen interface registered (24.04 uses **`com.lomiri.Repowerd`** / the Lomiri
+      screen name, not `com.canonical.Unity.Screen`), panel blanks and wakes, backlight non-zero
 - [ ] `/sys/class/leds/lcd-backlight/brightness` sane (not 0, not <100 on a 4095 scale)
 - [ ] Android container up; `sensorfw` polling with **0** `Poll failed` entries
 - [ ] Android `sensorservice` **not** running — if repowerd still needs it, the upgrade did not

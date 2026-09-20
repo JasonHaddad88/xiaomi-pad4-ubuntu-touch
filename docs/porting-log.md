@@ -4,6 +4,51 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — INCIDENT: my sensorservice job was rebooting the tablet
+
+**Symptom (reported):** "on boot the screen does not pass the Ubuntu logo always, and when it does,
+it flickers then goes off."
+
+**Cause — the single most important lesson of this port:**
+
+```
+watchdog: 'sensorservice' (instance '') hit respawn limit - rebooting
+```
+
+**Ubuntu Touch's watchdog reboots the whole device when an upstart job hits its respawn limit.** My
+`sensorservice.conf` used `exec lxc-attach ... /system/bin/sensorservice` + `respawn`. sensorservice
+crash-loops whenever the sensors HAL goes away (`Abort due to ISensors hidl service failure, detail:
+Status(EX_TRANSACTION_FAILED): 'DEAD_OBJECT'`), so the job flapped, hit the limit, and the watchdog
+rebooted the tablet — over and over. The "flicker then off" was the display dying as it rebooted.
+
+A second bug made it worse: `post-start` restarted repowerd on **every** respawn, so repowerd was
+restarted **60 times in two hours**, tearing the display stack down each time.
+
+**Why sensorservice crash-loops:** `sensorservice` and `sensorfw` cannot both hold the sensors HAL.
+With both running, `vendor.sensors-hal-1-0` exits with status 255 every ~5s (71 times in one boot).
+Proof: the HAL was stable from 461s to 806s — exactly the window when sensorservice was not running —
+and started dying again the moment sensorservice was launched. Stopping sensorfw and running
+sensorservice alone produced no abort and one HAL restart instead of ~12/minute.
+
+**Fix:** repowerd only needs sensorservice to exist *when it starts*; it keeps working and keeps
+answering on `com.canonical.Unity.Screen` after sensorservice disappears. So `sensor-bringup.conf` is
+a one-shot **task** that starts sensorservice, kicks repowerd so it binds, then kills sensorservice
+and hands the HAL back to sensorfw. Screen-off and rotation now coexist.
+
+**Measured before → after (per boot):** repowerd restarts 60 → 1 · HAL restarts ~71 and climbing → 4,
+then frozen · watchdog reboots → none across a 5-minute watch.
+
+### Rules this cost us
+- **Never supervise an Android container service with an upstart `respawn` job on Ubuntu Touch.** A
+  flapping job does not just fail, it *reboots the device*. Use a one-shot `task`, or android init.
+- **Never restart repowerd from a per-start hook.** Once per boot, or the display churns.
+- `initctl list` is the first thing to check when a job "did not work" — `stop/waiting` means it never
+  started or upstart gave up, which is a completely different bug from the job doing the wrong thing.
+- A wrong turn: I first blamed a duplicate repowerd restart for tripping the respawn limit. It had
+  not — `initctl restart` does not count toward it. Check the evidence before blaming your own diff.
+
+---
+
 ## 2026-09-20 (cont.) — FIX: rotation (sensors), and the charger-mode boot trap
 
 **Symptom:** no rotation. `dumpsys sensorservice` → **"No Sensors on the device"**;

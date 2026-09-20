@@ -4,6 +4,54 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes â€
 
 ---
 
+## 2026-09-20 (cont.) - ROTATION: blocked by repowerd, not by the sensors
+
+The sensors are fine. The blocker is a hard conflict, now measured rather than guessed:
+
+**The vendor sensors HAL allows exactly ONE poller.** With android's `sensorservice` running,
+sensorfw's poll returns result 2 (`PERMISSION_DENIED` in HIDL sensors 1.0) - 23k failures in one
+boot. Stop sensorservice and restart sensorfw and the failures drop to **0**, the accelerometer
+plugin loads, and rotation data flows. There is no sensors@2.0/2.1 interface on this device
+(`Could not find service hosting interface android.hardware.sensors@2.1::ISensors/default`), so the
+multi-client FMQ path is not available.
+
+**But repowerd cannot run without sensorservice.** It uses libubuntu_application_api for
+`ua_sensors_light_*` / `ua_sensors_proximity_*` only - its display control is pure D-Bus
+(`com.canonical.Unity.Screen`) - and this tablet has **no proximity sensor**, so repowerd's sensorfw
+backend fails and it falls through to the UAL one, which does not fail: it blocks forever in
+`Waiting for service 'sensorservice' on /dev/binder`, never registering Unity.Screen. Dead power
+button, unwakeable screen.
+
+So it is strictly one or the other, and screen control wins.
+
+### What was tried
+- **`proximitysensor=True`** in a sensorfw `[available]` override: sensorfw then *offers* proximity
+  (`loadPlugin` returns true), but repowerd still went to the UAL backend. Removed again.
+- **`/etc/deviceinfo/devices/clover.yaml`**: the device had no deviceinfo entry at all, so repowerd
+  logged `No device yaml config found!` and the generic `halium` profile applied - which sets
+  `PrimaryOrientation: Portrait` and **no `SupportedOrientations`**, so Lomiri is never told rotation
+  is allowed. The file silences that message and declares all four orientations. **Kept** - it is
+  correct regardless, and needed whenever rotation does work.
+- **`UBUNTU_PLATFORM_API_BACKEND=test`** to keep repowerd's UAL calls off binder. Note for next time:
+  upstart on this device ignores both `/etc/init/repowerd.override` and edits to `repowerd.conf`
+  until a **reboot** - `initctl reload-configuration` does not help, and the env var silently never
+  reaches the process, which invalidated two earlier attempts. After a reboot the variable *was*
+  delivered, but repowerd still failed to register Unity.Screen, so the test backend is not a way
+  out. Reverted.
+
+### Also fixed along the way
+The stored `com.ubuntu.touch.system brightness` had gone back to **0**, which is why the screen kept
+coming back black even with a correct backlight range: the panel powers on at brightness zero. Set to
+1739 and confirmed it survives a reboot. Worth checking first whenever "the screen will not come on".
+
+### Where rotation stands
+Needs repowerd to stop depending on android sensors. Options, in order of sanity: a repowerd build
+with a working sensorfw backend (upstream has `xenial_-_sensorfw`); patching out the UAL proximity
+path; or a minimal stub that registers `sensorservice` on binder without touching the HAL. None of
+these belong on a device someone is using without being asked first.
+
+---
+
 ## 2026-09-20 (cont.) - THE ACTUAL ROOT CAUSES: a 4095 backlight and a missing proximity sensor
 
 **Reported:** "I can use the tablet for a couple of seconds, then the screen turns off, and I am not

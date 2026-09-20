@@ -33,6 +33,10 @@ system in its confirmed-working state.
 - `/userdata/android-rootfs.img.pristine` — the untouched original, still on the device
 - gsettings `com.ubuntu.touch.system brightness` — must **not** be 0 (0 = black screen); currently ~1739
 - gsettings `com.ubuntu.touch.system rotation-lock` = `false`
+- `/etc/deviceinfo/devices/clover.yaml` (md5 `b4d74b2a47738f2814c4bf7ec0a5981a`, repo:
+  `device-fixes/clover.yaml`) - declares all four `SupportedOrientations` and silences repowerd's
+  `No device yaml config found!`. Without it the generic `halium` profile applies, which never tells
+  Lomiri that rotation is allowed.
 
 ## Rebuilding the patched system image (if ever lost)
 

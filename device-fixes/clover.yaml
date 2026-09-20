@@ -1,0 +1,31 @@
+# deviceinfo entry for clover (Xiaomi Mi Pad 4).
+# Install to /etc/deviceinfo/devices/clover.yaml
+#
+# Without this file, deviceinfo has no entry for this device: repowerd logs
+# "No device yaml config found!" and the generic "halium" profile in
+# /etc/deviceinfo/default.yaml is used, which sets PrimaryOrientation: Portrait
+# and NO SupportedOrientations at all - so Lomiri is never told that rotating is
+# allowed, and qtmir keeps reporting Qt::PortraitOrientation no matter how the
+# tablet is held.
+#
+# The panel is 1200x1920, i.e. portrait-native, so PrimaryOrientation stays
+# Portrait (same as the halium default). DeviceType and GridUnit are
+# deliberately omitted so the UI scale is inherited and does not change.
+#
+# Added 2026-09-20 during clover bring-up. Delete this file to revert.
+clover:
+  Names:
+    - clover
+    - "Xiaomi Mi Pad 4"
+  PrettyName: Xiaomi Mi Pad 4
+  SupportedOrientations:
+    - Portrait
+    - InvertedPortrait
+    - Landscape
+    - InvertedLandscape
+  PrimaryOrientation: Portrait
+  PortraitOrientation: Portrait
+  InvertedPortraitOrientation: InvertedPortrait
+  LandscapeOrientation: Landscape
+  InvertedLandscapeOrientation: InvertedLandscape
+  SensorfwConfig: /etc/deviceinfo/sensorfw/hybris.conf

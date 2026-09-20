@@ -3,42 +3,49 @@
 Each fix is small, reversible, and was applied only after a verified backup
 (`backups/ut-working-2026-09-20/`). Restore any of them with the originals listed below.
 
-## 1. Screen turn-off — `sensorservice.conf` (and why rotation is off)
-Install to `/etc/init/sensorservice.conf` (rootfs is read-only: `sudo mount -o remount,rw /`,
+## 1. Rotation + screen turn-off — `sensor-bringup.conf`
+Install to `/etc/init/sensor-bringup.conf` (rootfs is read-only: `sudo mount -o remount,rw /`,
 install, then `sudo mount -o remount,ro /`).
 
-repowerd blocks on binder waiting for Android's `sensorservice` ("Waiting for service
-'sensorservice' on /dev/binder"), never registers `com.canonical.Unity.Screen`, and the display can
-then never be blanked **or woken** — the power button does nothing. Halium has no Android framework
-to start it, so this job does.
+### How stock Ubuntu Touch does sensors
+```
+sensors HAL  <--  sensorfw (the ONLY client)  <--D-Bus--  Lomiri (rotation), repowerd (light/proximity)
+```
+repowerd is built with `SensorfwLightSensor` / `SensorfwProximitySensor` and talks to sensorfw's
+`com.nokia.SensorService`. Chasing this properly is what unstuck the whole problem — an earlier fix
+here ran Android's `/system/bin/sensorservice` permanently, which no normal port does, and that
+second HAL client caused every symptom that followed.
 
-> ### ⚠ Two hard rules, both learned painfully
-> **1. Upstart must never see this job exit.** Ubuntu Touch's watchdog **reboots the device** when a
-> job hits its respawn limit:
+### The one twist on this device
+The repowerd in this rootfs still binds android's binder `sensorservice` **at startup**. Without it
+it sits in `Waiting for service 'sensorservice' on /dev/binder` forever, never registers
+`com.canonical.Unity.Screen`, and the display can then be neither blanked nor woken — the power
+button looks dead. But it only needs sensorservice long enough to **bind**: afterwards it keeps
+serving `com.canonical.Unity.Screen` fine with sensorservice gone.
+
+So the job: bring sensorservice up → **wait until repowerd has actually registered on D-Bus** → kill
+it → restart sensorfw so it owns the HAL again. If screen control never comes up, it leaves
+sensorservice running instead, because a working power button beats rotation.
+
+It triggers on `start on started repowerd`, so it also re-arms if repowerd restarts later — otherwise
+repowerd would block forever on a sensorservice that no longer exists.
+
+> ### ⚠ Never let an upstart job flap on Ubuntu Touch
+> The watchdog **reboots the device** when a job hits its respawn limit:
 > ```
 > watchdog: 'sensorservice' (instance '') hit respawn limit - rebooting
 > ```
-> sensorservice crash-loops whenever the sensors HAL goes away (`Abort due to ISensors hidl service
-> failure ... DEAD_OBJECT`), so an `exec …` + `respawn` version turned the tablet into a **boot
-> loop**. The job's main process is now a shell that loops forever and never exits, so upstart never
-> respawns anything and the watchdog is never triggered.
->
-> **2. Never kill sensorservice once it is up.** An earlier version started it, let repowerd bind,
-> then killed it ~16s later to free the HAL for rotation. That blanked the screen ~16 seconds into
-> every session and left the power button dead.
+> An earlier `exec … ` + `respawn` version of this fix turned the tablet into a boot loop. This is a
+> one-shot `task`; nothing here may ever flap.
 
-### Rotation is REVERTED on the device (2026-09-20)
-`sensorservice` and `sensorfw` **cannot both hold the sensors HAL**: with both running,
-`vendor.sensors-hal-1-0` exits with status 255 every ~5s (71 times in one boot). Every scheme that
-tried to give both — killing sensorservice after repowerd bound, retriggering on repowerd restart —
-produced a worse experience than either alone: the screen blanking ~16s into a session, a dead power
-button, and self-reboots. **The whole rotation change set was reverted** back to the last state the
-device owner described as "almost seamless". See section 3.
+**Verified after a clean reboot:** `com.canonical.Unity.Screen` registered by ~74s · HAL restarts
+settle at 4 and then freeze · sensorservice gone · sensorfw serving the accelerometer plugin ·
+panel blanks on the idle timeout and wakes on command · zero watchdog hits.
 
-**Expected behaviour:** the screen still blanks on its own after ~60-90s of no input — that is Ubuntu
-Touch's normal inactivity timeout, not a fault. The power button wakes it.
+**Expected behaviour:** the screen blanks by itself after ~60-90s of no input. That is Ubuntu Touch's
+normal inactivity timeout, not a fault; the power button wakes it.
 
-**Revert:** delete `/etc/init/sensorservice.conf`.
+**Revert:** delete `/etc/init/sensor-bringup.conf`.
 
 ## 1b. Random self-reboots — `audiosystem-passthrough`
 ```
@@ -74,32 +81,27 @@ Applied to `/android/vendor/etc/mixer_paths.xml` (vendor partition is read-only:
 
 **Revert:** `sudo cp -a /android/vendor/etc/mixer_paths.xml.bak /android/vendor/etc/mixer_paths.xml`
 
-## 3. Sensors / rotation — REVERTED (kept here for a future attempt)
-These made all 30 sensors work (BMI120 accelerometer + gyroscope, CM3232 light, ROHM hall effect) and
-rotation worked — but they also make the sensors HAL fight `sensorservice`, which costs screen
-turn-off and stability. **Both are reverted on the device.**
-
-What they were:
+## 3. Supporting changes that make the sensors exist
+Without these, android reports **"No Sensors on the device"** — the Qualcomm sensor daemon gates on
+`/persist/sensors/sensors_settings`:
+```
+libsensor1: check_sensors_enabled: Sensors enabled = false
+Sensors : sns_main.c(447):Timeout waiting for SMGR service. Exit sensors daemon!
+```
 - **Symlink:** `/persist -> /mnt/vendor/persist` (stock is `/persist -> /android/persist`, which does
-  not exist; the partition is `mmcblk0p48`). Without it the Qualcomm sensor daemon gates out:
-  `check_sensors_enabled: Sensors enabled = false` -> `Timeout waiting for SMGR service` -> android
-  reports "No Sensors on the device".
+  not exist; the partition is `mmcblk0p48`).
 - **System image:** an empty `/persist` mountpoint, so LXC's
-  `lxc.mount.entry = /persist persist bind bind,optional` stops skipping. The patched image is still
-  on the device as **`/userdata/android-rootfs.img.persistfix`**; the pristine one is live.
+  `lxc.mount.entry = /persist persist bind bind,optional` stops skipping it. The image was copied,
+  modified while unmounted, `e2fsck -fn`'d clean and swapped in by rename. The untouched original is
+  on the device as `/userdata/android-rootfs.img.pristine`.
 
 Not a firmware problem: there is no SLPI image on this device and the SSC runs on the **ADSP**, so
 `slpi_load_fw: SLPI image loading failed` in dmesg is a red herring.
 
-**To try rotation again** (expect the screen-turn-off regression unless the HAL conflict is solved
-first):
-```sh
-sudo mount -o remount,rw /
-sudo rm /persist && sudo ln -s /mnt/vendor/persist /persist
-sudo mv /userdata/android-rootfs.img /userdata/android-rootfs.img.pristine
-sudo mv /userdata/android-rootfs.img.persistfix /userdata/android-rootfs.img
-sudo mount -o remount,ro / && sudo reboot
-```
+Result: **30 h/w sensors** — BMI120 accelerometer + gyroscope, CM3232 light, ROHM hall effect.
+
+**Revert:** `sudo mv /userdata/android-rootfs.img.pristine /userdata/android-rootfs.img`;
+`sudo rm /persist && sudo ln -s /android/persist /persist` (rootfs remounted rw).
 Backup of the persist partition: `backups/.../persist-p48.img.gz` (32 MB, md5 verified).
 
 ## 4. Reboot while plugged in — `lxc-android-config.override`

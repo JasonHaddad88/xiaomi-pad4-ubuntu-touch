@@ -4,6 +4,54 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — SOLVED: rotation and screen turn-off together, the stock way
+
+**The question that unstuck this:** "how do normal UBTouch devices work? there are a zillion working
+UBTouch devices."
+
+They do it with **one** HAL client:
+
+```
+sensors HAL  <--  sensorfw  <--D-Bus--  Lomiri (rotation), repowerd (light/proximity)
+```
+
+`strings /usr/sbin/repowerd` shows `SensorfwLightSensor`, `SensorfwProximitySensor`, `Sensorfw` and
+`com.nokia.SensorService` — sensorfw's D-Bus name. There is **no android sensorservice backend** in
+repowerd. Android's `/system/bin/sensorservice` is not part of a normal port at all.
+
+So the original "fix #1" was a misdiagnosis: what made screen turn-off work back then was the
+`initctl restart repowerd` sitting in that job's `post-start`, not the sensorservice next to it. I
+then built an elaborate HAL-conflict problem on top of a daemon that should never have been running -
+that second HAL client is what caused the crash-loops, the boot loops and the dead power button.
+
+**The one real twist on this device:** the repowerd in this rootfs still binds binder `sensorservice`
+at startup. Without it, it sits in `Waiting for service 'sensorservice' on /dev/binder` forever
+(confirmed: the waiting pid in logcat maps to `/usr/sbin/repowerd` on the host), never registers
+`com.canonical.Unity.Screen`, and the display can be neither blanked nor woken. But it only needs it
+long enough to **bind** — afterwards it serves the screen fine with sensorservice gone.
+
+**Final design** (`sensor-bringup.conf`, one-shot task on `started repowerd`): ensure `/persist`
+reaches the container → wait for the HAL → start sensorservice → **wait until
+`com.canonical.Unity.Screen` is actually registered** → kill sensorservice → restart sensorfw so it
+owns the HAL again. If screen control never appears it leaves sensorservice running instead, because
+a working power button beats rotation.
+
+**Verified after a clean reboot, no manual steps:** Unity.Screen registered by ~74s · HAL restarts
+settle at 4 then freeze · sensorservice gone · sensorfw serving the accelerometer · panel blanks on
+the idle timeout and wakes on command · zero watchdog hits across a 5-minute watch.
+
+### Rules this cost us
+- **Ask how the working majority does it before engineering a workaround.** Every UT device rotates
+  and blanks its screen; that fact alone said my architecture was wrong, and one `strings` on the
+  binary proved it in seconds.
+- **Verify the user-visible capability, not a proxy.** "repowerd answers a D-Bus introspect" is not
+  "the screen can be powered on". The final job polls for the real service before proceeding.
+- **Never let an upstart job flap on Ubuntu Touch** - the watchdog reboots the device.
+- When a baseline worked and a feature has caused rounds of regressions, revert to the baseline
+  first, then re-approach - do not ship another variation onto a device someone is using.
+
+---
+
 ## 2026-09-20 (cont.) — REVERTED the rotation work; back to a seamless device
 
 **Reported:** "the screen is reaching Ubuntu and going black, and the power button is not turning the

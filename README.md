@@ -39,8 +39,7 @@ halium initrd debug shell — full method in [docs/porting-log.md](docs/porting-
 [scripts/device/](scripts/device/).
 
 **Working (2026-09-20):** display + touch, GPU, Wi-Fi, battery reading, screen turn-off, brightness slider,
-loud audio, charging while off. **Not working:** rotation (the sensors work, but the vendor HAL cannot
-serve both sensorfw and android's sensorservice - attempting it cost screen turn-off and stability, so
-it is reverted), camera. **Untested:** Bluetooth, suspend/resume and battery drain.
+loud audio, charging while off, **rotation and all 30 sensors** (accelerometer, gyroscope, light, hall
+effect). **Not working:** camera. **Untested:** Bluetooth, suspend/resume and battery drain.
 Every applied fix, with its exact revert command, is in [device-fixes/README.md](device-fixes/README.md).
 Next: camera and the remaining unknowns per [docs/roadmap.md](docs/roadmap.md), then the Noble rootfs.

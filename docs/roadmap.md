@@ -45,9 +45,7 @@ This is a multi-week project; bring-up (Phase 4+) is where most time goes.
 
 **Bring-up status (2026-09-20):** ✅ display + touch, GPU (Adreno 512), Wi-Fi, battery reading,
 **screen turn-off**, **brightness slider**, **audio** (loud), charging while off ·
-❌ **rotation** - the sensors themselves work (all 30: accelerometer, gyroscope, light, hall effect)
-but sensorfw and android's sensorservice cannot both hold the vendor sensors HAL, and every attempt
-to share it cost screen turn-off and stability. Reverted; see device-fixes/README.md section 3 ·
+**rotation** + all 30 sensors (accelerometer, gyroscope, light, hall effect) ·
 ❌ **camera** · ❓ Bluetooth, suspend/resume + battery drain.
 Rule: full backup of the working state first, then one reversible fix at a time.
 All applied fixes and their exact revert commands: [`device-fixes/README.md`](../device-fixes/README.md).

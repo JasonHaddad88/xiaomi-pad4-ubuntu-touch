@@ -33,8 +33,17 @@ ISensors hidl service failure ... DEAD_OBJECT`. With sensorservice gone, the HAL
 But repowerd only needs sensorservice to exist *when it starts* — it keeps working, and keeps
 answering on `com.canonical.Unity.Screen`, after sensorservice goes away.
 
-So the job starts sensorservice, kicks repowerd so it binds, then **kills sensorservice** and hands
-the HAL back to sensorfw. Result: screen turn-off and rotation at the same time.
+So the job starts sensorservice, lets the waiting repowerd bind to it, then **kills sensorservice**
+and hands the HAL back to sensorfw. Result: screen turn-off and rotation at the same time.
+
+It triggers on `start on started repowerd`, not on the `android` event. repowerd blocks on binder
+until sensorservice appears, so the job runs *while* it is waiting and unblocks it — no repowerd
+restart needed (one less display flicker at boot). It also makes a later repowerd restart safe:
+without this, repowerd would block forever on a sensorservice that no longer exists, leaving the
+screen unwakeable and the power button dead. Verified by restarting repowerd mid-session.
+
+**Expected behaviour:** the screen still blanks on its own after ~60s of no input — that is Ubuntu
+Touch's normal inactivity timeout, not a fault. The power button wakes it.
 
 > ### ⚠ Never supervise an Android service with upstart on this OS
 > Ubuntu Touch's watchdog **reboots the device** when an upstart job hits its respawn limit:

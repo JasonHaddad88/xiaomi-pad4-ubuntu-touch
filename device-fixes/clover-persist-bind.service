@@ -1,0 +1,18 @@
+# clover: bind the persist partition into the Android container so the sensors
+# work (accelerometer -> rotation, light sensor). See clover-persist-bind.sh.
+# Install to /etc/systemd/system/ and: systemctl enable clover-persist-bind
+[Unit]
+Description=clover: bind persist into the Android container (sensors)
+After=lxc-android-config.service sensorfwd.service
+Wants=lxc-android-config.service
+ConditionPathIsDirectory=/mnt/vendor/persist/sensors
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/clover-persist-bind
+# one-shot on purpose: no Restart=, so a failure can never become a loop
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

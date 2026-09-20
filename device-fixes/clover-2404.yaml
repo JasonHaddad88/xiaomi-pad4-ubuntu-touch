@@ -28,3 +28,9 @@ clover:
   InvertedPortraitOrientation: InvertedPortrait
   LandscapeOrientation: Landscape
   InvertedLandscapeOrientation: InvertedLandscape
+  # sensorfwd runs with --device-info and there is no /etc/sensorfw/sensord.conf,
+  # so without this it falls back to its built-in HYBRIS adaptors and logs
+  # "HYBRIS CTL invalid sensor type: 1" / "no such sensor accelerometeradaptor".
+  # 30-hidl.conf selects the hidl*adaptor plugins, which talk to the Halium
+  # sensors HIDL service - the correct backend on this port.
+  SensorfwConfig: /etc/sensorfw/sensord.conf.d/30-hidl.conf

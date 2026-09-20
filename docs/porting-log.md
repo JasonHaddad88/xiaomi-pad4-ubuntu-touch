@@ -4,6 +4,47 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — RESOLUTION: stability over cleverness (screen-off kept, rotation parked)
+
+**Reported:** "boots to UI, it rotates, yet after around 16 seconds the screen turns off... another
+time the screen went off on the UBUNTU logo, then the tablet rebooted itself. Both times the power
+button was not working."
+
+Three independent faults were stacked on top of each other:
+
+1. **The ~16s screen-off was self-inflicted.** My bring-up task started sensorservice, let repowerd
+   bind, then *killed* sensorservice 15s later to free the HAL for rotation. Killing it blanked the
+   display and left repowerd unable to drive it — power button dead.
+2. **A second, unrelated reboot source:** `session-watchdog: 'audiosystem-passthrough' hit respawn
+   limit - asking logind to reboot`. It bridges cellular call audio and this is a WiFi-only tablet,
+   so it crash-loops forever. Disabled via a session override. (My earlier claim that the reboots
+   were fixed was wrong because I only checked for *sensorservice* watchdog hits, not all of them —
+   `grep "hit respawn limit"` with no job filter would have shown this immediately.)
+3. **The HAL conflict is not workable-around.** `sensorservice` and `sensorfw` cannot both hold the
+   sensors HAL; every scheme that tried to give both (kill-after-bind, retrigger-on-repowerd) traded
+   one broken feature for another.
+
+**Decision:** take the trade-off explicitly instead of engineering around it. `sensorfw` is disabled
+(`manual` in `/etc/init/sensorfw.override`), sensorservice runs permanently under a shell loop that
+upstart can never see exit, and rotation is parked. This matches the priority originally set for this
+port — screen turn-off first. Swapping back to rotation is one line, documented in
+`device-fixes/README.md`.
+
+**Measured after the change (5+ minute watch):** sensorservice pid stable, never restarted · repowerd
+and `com.canonical.Unity.Screen` up throughout · **HAL started once** (was 71+ and climbing) · zero
+new watchdog hits · display wakes on command.
+
+### Rules this cost us
+- **Never let an upstart job flap on Ubuntu Touch.** The watchdog reboots the device. If a process
+  must be supervised, wrap it in a `while true` shell loop so upstart's main process never exits.
+- **When checking whether reboots stopped, grep for *all* respawn-limit hits, not the job you were
+  working on.** A second culprit hid behind the first for hours.
+- **Verify the actual user-visible capability, not a proxy for it.** "repowerd answers a D-Bus
+  introspect" is not "repowerd can power the panel on". Check `panel_power_on` transitions.
+- Prefer an explicit, documented trade-off over a clever mechanism that makes both features flaky.
+
+---
+
 ## 2026-09-20 (cont.) — INCIDENT: my sensorservice job was rebooting the tablet
 
 **Symptom (reported):** "on boot the screen does not pass the Ubuntu logo always, and when it does,

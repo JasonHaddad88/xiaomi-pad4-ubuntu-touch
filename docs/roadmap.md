@@ -44,8 +44,10 @@ This is a multi-week project; bring-up (Phase 4+) is where most time goes.
 **Milestone:** Ubuntu Touch UI on screen, responds to touch, connects to WiFi. ✅ **Reached 2026-09-19** *(we are here)*
 
 **Bring-up status (2026-09-20):** ✅ display + touch, GPU (Adreno 512), Wi-Fi, battery reading,
-**screen turn-off**, **brightness slider**, **audio** (loud), **rotation + all 30 sensors**
-(accelerometer, gyroscope, light, hall effect), charging while off ·
+**screen turn-off**, **brightness slider**, **audio** (loud), charging while off ·
+🟡 **rotation** - all 30 sensors work (accelerometer, gyroscope, light, hall effect) but sensorfw and
+android's sensorservice cannot both hold the sensors HAL, so rotation and screen turn-off are
+currently mutually exclusive; screen turn-off is the one enabled (one-line swap, see device-fixes) ·
 ❌ **camera** · ❓ Bluetooth, suspend/resume + battery drain.
 Rule: full backup of the working state first, then one reversible fix at a time.
 All applied fixes and their exact revert commands: [`device-fixes/README.md`](../device-fixes/README.md).

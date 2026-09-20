@@ -3,60 +3,68 @@
 Each fix is small, reversible, and was applied only after a verified backup
 (`backups/ut-working-2026-09-20/`). Restore any of them with the originals listed below.
 
-## 1 + 3. Screen turn-off AND rotation — `sensor-bringup.conf`
-Install to `/etc/init/sensor-bringup.conf` (rootfs is read-only: `sudo mount -o remount,rw /`,
+## 1. Screen turn-off — `sensorservice.conf` (and why rotation is off)
+Install to `/etc/init/sensorservice.conf` (rootfs is read-only: `sudo mount -o remount,rw /`,
 install, then `sudo mount -o remount,ro /`).
 
-Three separate problems, one job:
+repowerd blocks on binder waiting for Android's `sensorservice` ("Waiting for service
+'sensorservice' on /dev/binder"), never registers `com.canonical.Unity.Screen`, and the display can
+then never be blanked **or woken** — the power button does nothing. Halium has no Android framework
+to start it, so this job does.
 
-**(a) repowerd needs Android's `sensorservice`.** It blocks forever on binder ("Waiting for service
-'sensorservice' on /dev/binder"), so `com.canonical.Unity.Screen` is never registered and nothing can
-blank the display. Halium has no Android framework to start it.
-
-**(b) Sensors were entirely absent** — `dumpsys sensorservice` said "No Sensors on the device"
-because the Qualcomm sensor daemon gates on `/persist/sensors/sensors_settings`:
-
-```
-libsensor1: check_sensors_enabled: Sensors enabled = false
-libsensor1: wait_for_service: sensors setting disabled sensors
-Sensors : sns_main.c(447):Timeout waiting for SMGR service. Exit sensors daemon!
-```
-
-`/persist` never reached the container: the rootfs ships `/persist -> /android/persist`, which does
-not exist (the partition, `mmcblk0p48`, is mounted at `/mnt/vendor/persist`), and our `system.img`
-had no `persist` directory, so LXC's `lxc.mount.entry = /persist persist bind bind,optional` silently
-skipped it. Fixed by repointing the symlink and adding the mountpoint to the system image (below).
-
-**(c) `sensorservice` and `sensorfw` cannot both hold the sensors HAL.** With both running,
-`vendor.sensors-hal-1-0` exits with status 255 every ~5s and sensorservice dies with `Abort due to
-ISensors hidl service failure ... DEAD_OBJECT`. With sensorservice gone, the HAL is stable for hours.
-But repowerd only needs sensorservice to exist *when it starts* — it keeps working, and keeps
-answering on `com.canonical.Unity.Screen`, after sensorservice goes away.
-
-So the job starts sensorservice, lets the waiting repowerd bind to it, then **kills sensorservice**
-and hands the HAL back to sensorfw. Result: screen turn-off and rotation at the same time.
-
-It triggers on `start on started repowerd`, not on the `android` event. repowerd blocks on binder
-until sensorservice appears, so the job runs *while* it is waiting and unblocks it — no repowerd
-restart needed (one less display flicker at boot). It also makes a later repowerd restart safe:
-without this, repowerd would block forever on a sensorservice that no longer exists, leaving the
-screen unwakeable and the power button dead. Verified by restarting repowerd mid-session.
-
-**Expected behaviour:** the screen still blanks on its own after ~60s of no input — that is Ubuntu
-Touch's normal inactivity timeout, not a fault. The power button wakes it.
-
-> ### ⚠ Never supervise an Android service with upstart on this OS
-> Ubuntu Touch's watchdog **reboots the device** when an upstart job hits its respawn limit:
+> ### ⚠ Two hard rules, both learned painfully
+> **1. Upstart must never see this job exit.** Ubuntu Touch's watchdog **reboots the device** when a
+> job hits its respawn limit:
 > ```
 > watchdog: 'sensorservice' (instance '') hit respawn limit - rebooting
 > ```
-> Because sensorservice crash-loops whenever the HAL goes away, an earlier `respawn`-based version of
-> this fix turned the tablet into a **boot loop** — never reaching the desktop, or flickering and
-> switching off. An earlier version also restarted repowerd from `post-start` on *every* respawn,
-> giving 60 repowerd restarts in two hours, which tore the display stack down over and over.
-> That is why this job is a one-shot `task` that runs once and exits.
+> sensorservice crash-loops whenever the sensors HAL goes away (`Abort due to ISensors hidl service
+> failure ... DEAD_OBJECT`), so an `exec …` + `respawn` version turned the tablet into a **boot
+> loop**. The job's main process is now a shell that loops forever and never exits, so upstart never
+> respawns anything and the watchdog is never triggered.
+>
+> **2. Never kill sensorservice once it is up.** An earlier version started it, let repowerd bind,
+> then killed it ~16s later to free the HAL for rotation. That blanked the screen ~16 seconds into
+> every session and left the power button dead.
 
-**Revert:** delete `/etc/init/sensor-bringup.conf`.
+### The rotation trade-off
+`sensorservice` and `sensorfw` **cannot both hold the sensors HAL**: with both running,
+`vendor.sensors-hal-1-0` exits with status 255 every ~5s (71 times in one boot). Proof — the HAL was
+stable from 461s to 806s of one boot, exactly the window when sensorservice was not running, and
+died again the moment it was launched.
+
+So it is one or the other:
+
+| | screen turn-off | rotation |
+|---|---|---|
+| `sensorfw` disabled *(current)* | ✅ | ❌ |
+| `sensorfw` enabled | ❌ power button dead | ✅ |
+
+**To swap to rotation instead:** remove the trailing `manual` line from `/etc/init/sensorfw.override`
+and reboot. Original: `backups/.../sensorfw.override.orig`.
+
+Measured on the current setup: sensorservice stable for 5+ minutes (never restarted), repowerd and
+`com.canonical.Unity.Screen` up throughout, **HAL started once**, no watchdog hits.
+
+**Expected behaviour:** the screen still blanks on its own after ~60-90s of no input — that is Ubuntu
+Touch's normal inactivity timeout, not a fault. The power button wakes it.
+
+**Revert:** delete `/etc/init/sensorservice.conf`.
+
+## 1b. Random self-reboots — `audiosystem-passthrough`
+```
+session-watchdog: 'audiosystem-passthrough' hit respawn limit - asking logind to reboot
+```
+A second, unrelated reboot source. `audiosystem-passthrough` bridges **cellular call audio** into
+PulseAudio; this is a WiFi-only tablet, so it has no job to do, and it crash-loops until the session
+watchdog reboots the device. Disabled with a session override:
+
+```
+/home/phablet/.config/upstart/audiosystem-passthrough.override   ->   manual
+```
+
+**Revert:** delete that file. (A harmless `<defunct>` child of pulseaudio may still appear; the
+crash-looping *job* is what the watchdog counted.)
 
 ## 2. Loud audio — speaker switch in the audio routing config
 The vendor `mixer_paths.xml` ships an **empty** `<path name="speaker">`, so the speaker outputs are

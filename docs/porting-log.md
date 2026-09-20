@@ -4,6 +4,53 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes â€
 
 ---
 
+## 2026-09-20 (cont.) - THE ACTUAL ROOT CAUSES: a 4095 backlight and a missing proximity sensor
+
+**Reported:** "I can use the tablet for a couple of seconds, then the screen turns off, and I am not
+able to turn the screen back on with the power button... rotation and brightness do not work."
+
+Two independent root causes, both finally identified properly:
+
+### 1. The backlight range
+`/sys/class/leds/lcd-backlight` has **`max_brightness = 4095`**. repowerd ships device configs for
+mako/flo/grouper/hammerhead but none for clover, so it logged `No device yaml config found!` and used
+its 8-bit defaults - dim 10, min 10, max 255, default 102 - every one of which is under 2.5% on this
+panel. The stored user brightness was **0**. So the panel powered on with the backlight at zero: the
+screen looked off, the power button looked dead, and the slider did nothing. Fixed with
+`/usr/share/repowerd/device-configs/config-clover.xml` (min 40, max 4095, default 1640, dim 100).
+
+**This one was findable much earlier.** `panel_power_on` told me the panel state but I never once read
+the backlight value next to it, so "screen is off" and "screen is on at brightness 0" looked
+identical for hours.
+
+### 2. Why sensorservice must never be killed
+`strings /usr/sbin/repowerd` shows the proximity backend order:
+`SensorfwProximitySensor -> UbuntuProximitySensor -> NullProximitySensor`. This tablet has **no
+proximity sensor** (`dumpsys sensorservice | grep -c proximity` = 0), so the sensorfw backend fails
+and repowerd falls through to the Ubuntu/UAL one - which does not fail, it blocks forever waiting for
+binder `sensorservice`. Blocked, repowerd never registers `com.canonical.Unity.Screen`.
+
+Worse: kill sensorservice after repowerd bound to it and repowerd *exits*, upstart respawns it, and
+it blocks again. The previous design killed sensorservice deliberately to free the HAL for sensorfw -
+producing precisely the reported symptom: a few usable seconds, screen off, random returns.
+
+**Fix:** start sensorservice once and keep it (supervised by a shell loop upstart can never see exit,
+because the watchdog reboots the device on a respawn-limit hit). sensorfw runs alongside as a second
+HAL client; the HAL restarts a few times while both attach, then settles.
+
+**Verified after a clean reboot:** backlight 1640/4095 with the panel on, dims to 100, blanks on the
+idle timeout, wake restores 1640; repowerd on a single pid for the whole watch, never restarted;
+sensorservice up; sensorfw serving the accelerometer; HAL settled at 7 starts; zero watchdog hits.
+
+### Rules this cost us
+- **Measure the whole signal chain, not one link.** Panel power and backlight level are different
+  things; reading only the first made an invisible screen look like a display-power bug for hours.
+- A port needs its **device config** (brightness range) as much as its drivers - check for
+  `No device yaml config found!` early.
+- When a daemon "needs" something odd, read its backend-selection strings instead of theorising.
+
+---
+
 ## 2026-09-20 (cont.) â€” SOLVED: rotation and screen turn-off together, the stock way
 
 **The question that unstuck this:** "how do normal UBTouch devices work? there are a zillion working

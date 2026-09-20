@@ -3,49 +3,55 @@
 Each fix is small, reversible, and was applied only after a verified backup
 (`backups/ut-working-2026-09-20/`). Restore any of them with the originals listed below.
 
-## 1. Rotation + screen turn-off — `sensor-bringup.conf`
-Install to `/etc/init/sensor-bringup.conf` (rootfs is read-only: `sudo mount -o remount,rw /`,
-install, then `sudo mount -o remount,ro /`).
+## 1. Screen turn-off, wake, brightness + rotation - `sensorservice.conf` + `config-clover.xml`
+Install `sensorservice.conf` to `/etc/init/` and `config-clover.xml` to
+`/usr/share/repowerd/device-configs/` (rootfs is read-only: `sudo mount -o remount,rw /`, install,
+then `sudo mount -o remount,ro /`).
 
-### How stock Ubuntu Touch does sensors
+### (a) The backlight range - why the screen looked dead
+`/sys/class/leds/lcd-backlight` has **`max_brightness = 4095`**. repowerd shipped no device config
+for clover (`No device yaml config found!`), so it used its 8-bit defaults: dim 10, min 10, max 255,
+default 102. On a 4095 panel every one of those is under 2.5% - and the stored user setting was 0.
+So the panel powered on with the backlight at ~0: the screen looked off, the power button looked
+dead, and the brightness slider did nothing. `config-clover.xml` sets the real range
+(min 40, max 4095, default 1640, dim 100).
+
+### (b) Why Android's sensorservice has to keep running
+repowerd picks its proximity backend in this order (visible via `strings /usr/sbin/repowerd`):
 ```
-sensors HAL  <--  sensorfw (the ONLY client)  <--D-Bus--  Lomiri (rotation), repowerd (light/proximity)
+SensorfwProximitySensor  ->  UbuntuProximitySensor  ->  NullProximitySensor
 ```
-repowerd is built with `SensorfwLightSensor` / `SensorfwProximitySensor` and talks to sensorfw's
-`com.nokia.SensorService`. Chasing this properly is what unstuck the whole problem — an earlier fix
-here ran Android's `/system/bin/sensorservice` permanently, which no normal port does, and that
-second HAL client caused every symptom that followed.
+**This tablet has no proximity sensor at all** (`dumpsys sensorservice | grep -c proximity` = 0), so
+the sensorfw backend fails ("sensor has not been instantiated" in sensorfw's log) and repowerd falls
+through to the Ubuntu/UAL one - which does not fail, it **blocks forever** in `Waiting for service
+'sensorservice' on /dev/binder`. Blocked, it never registers `com.canonical.Unity.Screen`, so the
+display can be neither blanked nor woken.
 
-### The one twist on this device
-The repowerd in this rootfs still binds android's binder `sensorservice` **at startup**. Without it
-it sits in `Waiting for service 'sensorservice' on /dev/binder` forever, never registers
-`com.canonical.Unity.Screen`, and the display can then be neither blanked nor woken — the power
-button looks dead. But it only needs sensorservice long enough to **bind**: afterwards it keeps
-serving `com.canonical.Unity.Screen` fine with sensorservice gone.
+And if sensorservice disappears *after* repowerd bound to it, repowerd exits and upstart respawns it
+straight back into that blocked state. An earlier version of this fix killed sensorservice on purpose
+to free the HAL for sensorfw, which produced exactly that loop: **a few usable seconds, screen off,
+random returns, dead power button.** So it is started once and never killed.
 
-So the job: bring sensorservice up → **wait until repowerd has actually registered on D-Bus** → kill
-it → restart sensorfw so it owns the HAL again. If screen control never comes up, it leaves
-sensorservice running instead, because a working power button beats rotation.
+sensorfw (rotation) is a second client of the same HAL; it restarts a few times while both attach and
+then settles.
 
-It triggers on `start on started repowerd`, so it also re-arms if repowerd restarts later — otherwise
-repowerd would block forever on a sensorservice that no longer exists.
-
-> ### ⚠ Never let an upstart job flap on Ubuntu Touch
+> ### WARNING: never let an upstart job flap on Ubuntu Touch
 > The watchdog **reboots the device** when a job hits its respawn limit:
 > ```
 > watchdog: 'sensorservice' (instance '') hit respawn limit - rebooting
 > ```
-> An earlier `exec … ` + `respawn` version of this fix turned the tablet into a boot loop. This is a
-> one-shot `task`; nothing here may ever flap.
+> An `exec ...` + `respawn` version of this job turned the tablet into a boot loop. The job's main
+> process is a shell loop that never exits, so upstart never respawns it.
 
-**Verified after a clean reboot:** `com.canonical.Unity.Screen` registered by ~74s · HAL restarts
-settle at 4 and then freeze · sensorservice gone · sensorfw serving the accelerometer plugin ·
-panel blanks on the idle timeout and wakes on command · zero watchdog hits.
+**Verified after a clean reboot, no manual steps:** backlight 1640/4095 with the panel on, dims to
+100, blanks on the idle timeout, wake restores 1640, repowerd on one pid the whole watch (never
+restarted), sensorservice up, sensorfw serving the accelerometer, HAL settled, zero watchdog hits.
 
-**Expected behaviour:** the screen blanks by itself after ~60-90s of no input. That is Ubuntu Touch's
-normal inactivity timeout, not a fault; the power button wakes it.
+**Expected behaviour:** the screen dims then blanks after ~1-2 minutes of no input. That is Ubuntu
+Touch's normal inactivity timeout; the power button wakes it.
 
-**Revert:** delete `/etc/init/sensor-bringup.conf`.
+**Revert:** delete `/etc/init/sensorservice.conf` and
+`/usr/share/repowerd/device-configs/config-clover.xml`.
 
 ## 1b. Random self-reboots — `audiosystem-passthrough`
 ```

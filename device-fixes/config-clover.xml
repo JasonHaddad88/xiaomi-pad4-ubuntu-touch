@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  repowerd device config for clover (Xiaomi Mi Pad 4).
+
+  Without this file repowerd logs "No device yaml config found!" and falls back
+  to its defaults, which assume an 8-bit backlight: dim 10, min 10, max 255,
+  default 102. This panel's backlight is /sys/class/leds/lcd-backlight with
+  max_brightness = 4095, so every one of those values lands under 2.5% - the
+  screen looks off even while the panel is powered, the brightness slider does
+  nothing useful, and pressing the power button appears to do nothing at all
+  because the display comes back at brightness ~0.
+
+  Values below are scaled to 4095.
+  Added 2026-09-20 during clover bring-up. Delete this file to revert.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Minimum screen brightness setting allowed by the power manager.
+         The user is forbidden from setting the brightness below this level. -->
+    <integer name="config_screenBrightnessSettingMinimum">40</integer>
+
+    <!-- Maximum screen brightness setting allowed by the power manager.
+         Matches max_brightness of /sys/class/leds/lcd-backlight. -->
+    <integer name="config_screenBrightnessSettingMaximum">4095</integer>
+
+    <!-- Default screen brightness setting (~40%). -->
+    <integer name="config_screenBrightnessSettingDefault">1640</integer>
+
+    <!-- Screen brightness used to dim the screen before going to sleep (~2.5%). -->
+    <integer name="config_screenBrightnessDim">100</integer>
+
+    <!-- The device has a CM3232 ALS, but auto-brightness needs a tuned LUX
+         curve; leave it to the user slider until that is measured. -->
+    <bool name="config_automatic_brightness_available">false</bool>
+</resources>

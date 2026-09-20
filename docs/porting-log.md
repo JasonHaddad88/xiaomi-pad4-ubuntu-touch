@@ -4,6 +4,50 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — UPGRADED to Ubuntu Touch 24.04 (noble) — it boots
+
+The 16.04 rootfs was replaced with `24.04-1.x/arm64/android9plus/stable`, keeping our Halium 9
+`halium-boot` and `system.img` and the vendor partition. **The device boots 24.04 and, on first
+inspection, everything works except rotation.**
+
+### How it was done
+1. Rootfs verified first: size matched the index exactly, `xz -t` clean, and the detached `.asc`
+   gave a **good signature from UBports' image-signing key**. (The pool filename is *not* the file's
+   sha256 — an assumption that produced a false "mismatch" scare.)
+2. Target image created **on the device** (`fallocate 4G` + the device's own `mkfs.ext4`), because
+   kernel 4.4 cannot mount an image made by a modern mkfs.
+3. The tablet has **no `xz`**, so streaming `tar -xJf` failed instantly. The link turned out to run at
+   **15 MB/s**, so the fix was to decompress on the PC and stream the raw 2.4 GB tar — about 3 minutes.
+4. Post-install: `systemctl enable ssh.service usb-tethering.service`, symlinks verified by hand.
+5. Device fixes re-applied into the new rootfs: `/persist -> /mnt/vendor/persist`, `clover.yaml`
+   (the 24.04 variant, **without** the `SensorfwConfig` line), and `config-clover.xml` (4095 backlight).
+6. `e2fsck -fn` clean, then swap: old rootfs kept as **`/userdata/rootfs.img.xenial`**.
+
+### Two traps caught before they bit
+- **`PasswordAuthentication=no`** in 24.04's `/etc/ssh/sshd_config.d/50-lxc-android-config.conf`.
+  Booting that with only password auth would have locked us out. Set to `yes`, *and* an SSH public key
+  was installed into the **persistent** home (`/userdata/user-data/phablet/.ssh`, shared by both
+  rootfs versions) and **verified working against the live 16.04 system before the swap**.
+- The `phablet` user is not in `/etc/passwd` at all — Ubuntu Touch keeps it in **extrausers**, which is
+  bind-mounted from userdata, so the account and its password survive a rootfs swap untouched.
+
+### First boot
+The very first boot ended in Qualcomm **crashdump mode** (`05C6:900E`, "QUSB_BULK") — no OS. A forced
+power-off and retry booted 24.04 fine, so it was a one-off. Worth remembering: that state looks
+alarming but nothing was lost, because the swap only touches one file inside userdata.
+
+### Access changed
+24.04 presents a different USB gadget: 16.04 used `0FCE:7169` (RNDIS, 10.15.19.82); 24.04 came up as
+`VID_1209&PID_0004` RNDIS (Windows: **Code 28, no driver**) and, once Developer Mode was enabled,
+as **MTP + ADB**. So the old `ssh phablet@10.15.19.82` route is gone; adb is the new channel.
+
+### Still to verify
+Rotation — the whole point of the upgrade. The claim to test: 24.04's repowerd does not link
+platform-api at all, so it cannot block on binder `sensorservice`, which leaves sensorfw as the only
+client of the single-poller sensors HAL.
+
+---
+
 ## 2026-09-20 (cont.) - WHY working devices rotate: they run a newer Ubuntu Touch
 
 Prompted by <https://devices.ubuntu-touch.io/device/amar-row-wifi/> (Lenovo Tab M10 HD 2nd Gen) which

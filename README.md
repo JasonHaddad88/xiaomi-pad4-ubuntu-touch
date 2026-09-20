@@ -32,7 +32,9 @@ running log — text we author and version-control.
 
 ## Status
 
-🟢 **Phase 4 — Ubuntu Touch boots with display + touch (2026-09-19).** Ubuntu Touch 16.04 on our own Halium-9
+🟢 **Phase 5 — running Ubuntu Touch 24.04 (noble) on Halium 9 (2026-09-20).** Upgraded from the 16.04
+rootfs to `24.04-1.x/arm64/android9plus/stable`, keeping our own Halium-9 boot and system images; the
+old rootfs is kept on the device as `rootfs.img.xenial` for a two-rename rollback. Ubuntu Touch on our own Halium-9
 build (kernel `4.4.153`, Adreno 512 GPU via libhybris, Mir at 1200×1920) runs on the tablet; touch works; SSH
 over USB tethering (`ssh phablet@10.15.19.82`). Installed **without TWRP** (it hangs on this unit) via the
 halium initrd debug shell — full method in [docs/porting-log.md](docs/porting-log.md), tools in

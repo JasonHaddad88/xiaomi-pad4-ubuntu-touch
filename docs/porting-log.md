@@ -4,6 +4,59 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes â€
 
 ---
 
+## 2026-09-20 (cont.) - WHY working devices rotate: they run a newer Ubuntu Touch
+
+Prompted by <https://devices.ubuntu-touch.io/device/amar-row-wifi/> (Lenovo Tab M10 HD 2nd Gen) which
+has rotation *and* automatic brightness working. It runs **Ubuntu Touch 24.04 (noble)**; we run
+**16.04 (xenial)**. That single difference explains the wall we hit.
+
+**The proof is in repowerd's source.** Our build is from the `xenial_-_android9` branch, where
+`DefaultDaemonConfig::the_proximity_sensor()` is:
+
+```cpp
+try { proximity_sensor = std::make_shared<UbuntuProximitySensor>(...); return ...; }   // FIRST
+catch (...) { log("Failed to create UbuntuProximitySensor"); log("Trying SensorfwProximitySensor"); }
+```
+
+The **Ubuntu/UAL backend is tried first** - and on a device with no proximity sensor it does not
+throw, it blocks forever in `Waiting for service 'sensorservice' on /dev/binder`. So repowerd never
+reaches the sensorfw path, never registers `com.canonical.Unity.Screen`, and the power button dies.
+That is why forcing `proximitysensor=True` in sensorfw changed nothing: the code never gets there.
+
+Current upstream (GitLab `ubports/development/core/repowerd`, `main` - what 24.04 ships) has the
+order **reversed**:
+
+```cpp
+try { proximity_sensor = std::make_shared<SensorfwProximitySensor>(...); return ...; }  // FIRST now
+catch (...) { logWarning("Failed to create SensorfwProximitySensor: %s", ...); }
+```
+
+With sensorfw first, repowerd never touches android's sensorservice, sensorfw is the only client of
+the vendor sensors HAL (which allows exactly one poller), and rotation and screen control coexist -
+exactly what the Lenovo tablet demonstrates.
+
+**Upgrade path exists for this hardware.** UBports publishes `android9plus` channels - Halium 9 *and
+newer* - including `20.04/arm64/android9plus/stable`, `24.04-1.x/arm64/android9plus/stable` (32
+devices, `amar_row_wifi` among them) and `26.04-1.x/arm64/android9plus/daily`. The 24.04 image
+splits into:
+
+| file | size | device-specific? |
+|---|---|---|
+| `rootfs-*.tar.xz` | 500 MB | **no** - this is the Ubuntu 24.04 userspace we would take |
+| `device-*.tar.xz` | 126 MB | yes - we build our own (`system.img`) |
+| `boot-*.tar.xz` | 71 MB | yes - we build our own (`halium-boot.img`) |
+
+So the route to rotation is not more config archaeology on xenial: it is replacing `/userdata/rootfs.img`
+with the 24.04 android9plus rootfs, keeping our Halium 9 boot and system images. That is Phase 5 of
+the roadmap, arriving earlier than planned.
+
+Caveats to plan for: 24.04 uses **systemd**, so the upstart jobs in `device-fixes/` become obsolete
+(most also become unnecessary - the new repowerd needs no `sensorservice`); the vendor-partition
+audio fix is unaffected; `/persist` symlink, the deviceinfo entry and the backlight config must be
+re-applied in the new rootfs. Rollback is a rename, since the old `rootfs.img` stays on the device.
+
+---
+
 ## 2026-09-20 (cont.) - ROTATION: blocked by repowerd, not by the sensors
 
 The sensors are fine. The blocker is a hard conflict, now measured rather than guessed:

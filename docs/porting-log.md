@@ -4,6 +4,31 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — FIX: loud audio (speakers were never switched on)
+
+**Symptom:** sound worked but was very quiet. PulseAudio was innocent: sink at 100%, unmuted,
+`Active Port: output-speaker`.
+
+**Diagnosis:** the codec gains were already maxed (`RX1/RX2/RX3 Digital Volume = 84`), but the speaker
+switches were off: `SPK: ZERO`, `WSA Spk Switch: ZERO`, `Ext Spk Switch: Off`. The vendor
+`mixer_paths.xml` has exactly one `<path name="speaker">` and it is **empty** (line 1704), while
+`speaker-protected` / `speaker-vbat` merely include that empty path - so selecting the speaker enables
+nothing and playback leaks out of a weak fallback route.
+
+**Fix:** `<ctl name="SPK" value="Switch" />` inside the `speaker` path of
+`/android/vendor/etc/mixer_paths.xml` (see `device-fixes/README.md`). Confirmed loud, and it survives
+reboot because the HAL re-applies the path on every route selection. Runtime equivalent for testing:
+`lxc-attach --clear-env -n android -- /system/bin/tinymix SPK Switch`.
+
+**Incident during the fix (lesson):** a WSL restart wiped `/tmp`, the `scp` of the patched file failed
+silently, and the next command `cat`-ed a missing file over the config - leaving `mixer_paths.xml`
+**empty** (md5 d41d8cd9...). Caught via checksum, restored from the on-device `.bak` (md5 back to
+e3571247...). **Rule: verify the uploaded file on the device before overwriting anything, and do
+upload+install in a single shell invocation.**
+
+**Also confirmed working today:** brightness slider (fixed as a side effect of fix #1), and charging
+while powered off (it charges on the Mi logo; only the Android charger UI is missing - deprioritised).
+
 ## 2026-09-20 — FIX: screen can be turned off (repowerd was stuck on Android `sensorservice`)
 
 **Symptom:** pressing Power never blanked the display; `com.canonical.powerd` and `com.canonical.Unity.Screen`

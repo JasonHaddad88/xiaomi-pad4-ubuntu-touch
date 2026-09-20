@@ -1,0 +1,30 @@
+# deviceinfo entry for clover (Xiaomi Mi Pad 4) — Ubuntu Touch 24.04 variant.
+# Install to /etc/deviceinfo/devices/clover.yaml
+#
+# Differs from the 16.04 version (device-fixes/clover.yaml) in one important way:
+# it does NOT set SensorfwConfig. On 16.04 the generic "halium" profile pointed
+# sensorfw at /etc/deviceinfo/sensorfw/hybris.conf; on 24.04 that file does not
+# exist. Instead sensorfw ships /etc/sensorfw/sensord.conf.d/30-hidl.conf, which
+# configures the hidl*adaptor plugins for every Halium device by default.
+# Pointing at the old, missing path would break sensor start-up.
+#
+# Still required, because the generic profiles declare no SupportedOrientations
+# at all: without this file Lomiri is never told that rotating is allowed.
+# The panel is 1200x1920 (portrait-native), so PrimaryOrientation stays Portrait.
+#
+# Added 2026-09-20 for the 24.04 upgrade. Delete this file to revert.
+clover:
+  Names:
+    - clover
+    - "Xiaomi Mi Pad 4"
+  PrettyName: Xiaomi Mi Pad 4
+  SupportedOrientations:
+    - Portrait
+    - InvertedPortrait
+    - Landscape
+    - InvertedLandscape
+  PrimaryOrientation: Portrait
+  PortraitOrientation: Portrait
+  InvertedPortraitOrientation: InvertedPortrait
+  LandscapeOrientation: Landscape
+  InvertedLandscapeOrientation: InvertedLandscape

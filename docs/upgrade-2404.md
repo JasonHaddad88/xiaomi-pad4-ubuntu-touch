@@ -1,6 +1,32 @@
 # Upgrading clover from Ubuntu Touch 16.04 to 24.04 (android9plus)
 
-> Status: **prepared, not yet executed.** The device stays on 16.04 until the owner says go.
+> Status: **rootfs downloaded, verified and inspected; device phase not started.** The tablet stays
+> on 16.04 until the owner says go.
+
+## Verification of the downloaded rootfs (done)
+
+| check | result |
+|---|---|
+| size vs index | exact match, 524,458,440 bytes |
+| `xz -t` integrity | OK |
+| GPG signature | **Good signature — "UBports system-image Image Signing key <infra@ubports.com>"** |
+| version | Ubuntu **24.04.4 LTS** (noble), 2.4 GB extracted |
+
+The pool filename is **not** the file's sha256 — authenticity is the detached `.asc` signature,
+verified against UBports' own `image-signing` keyring.
+
+### The claim this upgrade rests on, confirmed against the binary
+
+| | our 16.04 repowerd | 24.04 repowerd |
+|---|---|---|
+| links `libubuntu_application_api` (platform-api/binder) | yes | **no — not linked at all** |
+| `ua_sensors_*` strings | present | **zero** |
+| proximity backends | Ubuntu/UAL **first**, sensorfw fallback | **sensorfw → Null only** |
+
+The Android/binder sensor path is gone from 24.04's repowerd, so it cannot hang waiting for
+`sensorservice`; with no proximity sensor it falls back to `NullProximitySensor` and still registers
+its screen interface. That frees the single-poller HAL for sensorfw — screen control **and** rotation.
+Nothing in 24.04 starts Android's `sensorservice` (checked: no unit references it).
 
 ## Why
 
@@ -49,7 +75,7 @@ we built. Rootfs tarball: 500 MB,
    4.4 and cannot mount an image made by a modern `mkfs.ext4` (`metadata_csum`/`orphan_file`/`64bit`).
    Creating it with the device's own tools sidesteps that entirely:
    ```sh
-   sudo fallocate -l 3G /userdata/rootfs-2404.img
+   sudo fallocate -l 4G /userdata/rootfs-2404.img   # content is 2.4G; 3G is uncomfortably tight
    sudo mkfs.ext4 -F /userdata/rootfs-2404.img
    sudo mkdir -p /mnt/new2404 && sudo mount -o loop /userdata/rootfs-2404.img /mnt/new2404
    ```
@@ -59,7 +85,9 @@ we built. Rootfs tarball: 500 MB,
    ssh phablet@10.15.19.82 'sudo tar -xJf - -C /mnt/new2404' < rootfs-2404.tar.xz
    ```
 3. **Post-install** — the same steps `halium-install` performs for `ut20.04`. Missing the first one
-   loses our only access to the device:
+   loses our only access to the device. Note 24.04 ships
+   `lxc-android-config-disable-ssh-socket.service`, and neither ssh nor usb-tethering is pre-enabled,
+   so this is not optional:
    ```sh
    sudo chroot /mnt/new2404 systemctl enable ssh.service usb-tethering.service
    echo phablet:0000 | sudo chroot /mnt/new2404 chpasswd
@@ -70,8 +98,12 @@ we built. Rootfs tarball: 500 MB,
    ```
    The chroot is native (arm64 on arm64), so no qemu is needed.
 4. **Re-apply the device fixes** that live in the rootfs (`device-fixes/`):
-   - `/persist` → `/mnt/vendor/persist` (the stock symlink points at a path that does not exist)
-   - `/etc/deviceinfo/devices/clover.yaml` — declares all four `SupportedOrientations`
+   - `/persist` → `/mnt/vendor/persist` — **still required**: 24.04's `mount-android-partitions`
+     does not mount persist either, and the image ships the same dangling `/persist -> /android/persist`
+   - `/etc/deviceinfo/devices/clover.yaml` — use **`device-fixes/clover-2404.yaml`**, not the 16.04
+     file: 24.04 has no `/etc/deviceinfo/sensorfw/hybris.conf`, and pointing at it would break sensor
+     start-up. 24.04 configures sensorfw globally via `/etc/sensorfw/sensord.conf.d/30-hidl.conf`
+     (new `hidl*adaptor` plugins), so only the orientation keys are needed
    - `/usr/share/repowerd/device-configs/config-clover.xml` — **the 4095 backlight range**; without
      it the screen comes up at ~2% and looks dead
    - The upstart jobs do **not** carry over: 24.04 is systemd, and the `sensorservice` job should be

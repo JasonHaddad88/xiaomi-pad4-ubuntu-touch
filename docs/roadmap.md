@@ -45,7 +45,8 @@ This is a multi-week project; bring-up (Phase 4+) is where most time goes.
 
 **Bring-up status (2026-09-20):** ✅ display + touch, GPU (Adreno 512), Wi-Fi, battery reading,
 **screen turn-off**, **brightness slider**, **audio** (loud), charging while off ·
-**rotation** + all 30 sensors (accelerometer, gyroscope, light, hall effect) ·
+🟡 **rotation** - all 30 sensors are present and sensorfw serves the accelerometer, but the UI does
+not rotate yet (next task) ·
 ❌ **camera** · ❓ Bluetooth, suspend/resume + battery drain.
 Rule: full backup of the working state first, then one reversible fix at a time.
 All applied fixes and their exact revert commands: [`device-fixes/README.md`](../device-fixes/README.md).

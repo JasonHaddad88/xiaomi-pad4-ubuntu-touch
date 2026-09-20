@@ -1,0 +1,4 @@
+# clover: disabled - crash-loops into session-watchdog reboots
+# ("audiosystem-passthrough hit respawn limit - asking logind to reboot").
+# It bridges cellular call audio; this is a WiFi-only tablet.
+manual

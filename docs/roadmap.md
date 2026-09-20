@@ -43,9 +43,12 @@ This is a multi-week project; bring-up (Phase 4+) is where most time goes.
 
 **Milestone:** Ubuntu Touch UI on screen, responds to touch, connects to WiFi. ✅ **Reached 2026-09-19** *(we are here)*
 
-**Bring-up status (2026-09-19):** ✅ display + touch, GPU (Adreno 512), Wi-Fi, battery reading ·
-🟡 audio works but **very quiet** · ❌ **rotation**, **screen turn-off**, **brightness slider**, **camera** ·
-❓ Bluetooth, suspend/resume. Rule: full backup of the working state first, then one reversible fix at a time.
+**Bring-up status (2026-09-20):** ✅ display + touch, GPU (Adreno 512), Wi-Fi, battery reading,
+**screen turn-off**, **brightness slider**, **audio** (loud), **rotation + all 30 sensors**
+(accelerometer, gyroscope, light, hall effect), charging while off ·
+❌ **camera** · ❓ Bluetooth, suspend/resume + battery drain.
+Rule: full backup of the working state first, then one reversible fix at a time.
+All applied fixes and their exact revert commands: [`device-fixes/README.md`](../device-fixes/README.md).
 
 ## Phase 5 — Stabilize & ship
 - [ ] Fix Noble-specific issues; document working/broken features

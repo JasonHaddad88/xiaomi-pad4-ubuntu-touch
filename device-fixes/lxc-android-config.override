@@ -1,0 +1,59 @@
+# start lxc-android-config after mount-android finished
+start on (cgmanager-ready
+   and started cgroup-lite
+   and mounted-android)
+
+emits android charger
+
+pre-start script
+    if [ ! -d /sys/fs/cgroup/systemd ]; then
+        mkdir -p /sys/fs/cgroup/systemd
+        mount -t cgroup cgroup /sys/fs/cgroup/systemd -o name=systemd
+    fi
+    # breaks LXC if mounted
+    if [ -d /sys/fs/cgroup/schedtune ]; then
+        umount -l /sys/fs/cgroup/schedtune || true
+    fi
+    # mount binderfs if needed
+    if [ ! -e /dev/binder ]; then
+        mkdir -p /dev/binderfs
+        mount -t binder binder /dev/binderfs -o stats=global
+        ln -s /dev/binderfs/*binder /dev
+    fi
+end script
+
+post-start script
+    if [ ! -d /dev/cpuctl ] && [ -d /sys/fs/cgroup/cpu ]; then
+        ln -s /sys/fs/cgroup/cpu /dev/cpuctl
+    fi
+
+    lxc-wait -n android -s RUNNING -t 30
+    containerpid="$(lxc-info -n android -p -H)"
+    if [ -n "$containerpid" ]; then
+        while true; do
+            [ -f /proc/$containerpid/root/dev/.coldboot_done ] && break
+            sleep 0.1
+        done
+
+        # If the socket isn't available, 'getprop' falls back to reading files
+        # manually, causing a false positive of propertyservice being up
+        while [ ! -e /dev/socket/property_service ]; do sleep 0.1; done
+
+        # This property is read by libhybris itself to pick a linker, so it
+        # *MUST* be available before we emit 'android'.
+        while [ -z "$(getprop ro.build.version.sdk)" ]; do sleep 0.1; done
+
+        # clover: the bootloader reports charger mode whenever the USB cable is
+        # attached at power-on - an ordinary reboot while plugged in looks
+        # exactly like a cold charger insertion, so we cannot tell them apart.
+        # UT's charger path sysrq-remounts every filesystem read-only and emits
+        # 'charger' instead of 'android', which leaves repowerd (power button),
+        # the sensor jobs and all settings dead with /home read-only, while the
+        # UI still comes up. This port has no off-charging UI, so always boot
+        # normally. Original saved as lxc-android-config.override.orig
+        # (repo: device-fixes/). Added 2026-09-20 during clover bring-up.
+        initctl emit android
+    else
+        stop; exit 1
+    fi
+end script

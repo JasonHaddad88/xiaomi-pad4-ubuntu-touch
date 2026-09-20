@@ -36,5 +36,10 @@ running log — text we author and version-control.
 build (kernel `4.4.153`, Adreno 512 GPU via libhybris, Mir at 1200×1920) runs on the tablet; touch works; SSH
 over USB tethering (`ssh phablet@10.15.19.82`). Installed **without TWRP** (it hangs on this unit) via the
 halium initrd debug shell — full method in [docs/porting-log.md](docs/porting-log.md), tools in
-[scripts/device/](scripts/device/). Next: hardware bring-up (Wi-Fi, audio, sensors/rotation, battery, BT,
-camera) per [docs/roadmap.md](docs/roadmap.md), then the Noble rootfs.
+[scripts/device/](scripts/device/).
+
+**Working (2026-09-20):** display + touch, GPU, Wi-Fi, battery reading, screen turn-off, brightness slider,
+loud audio, **rotation and all 30 sensors** (accelerometer, gyroscope, light, hall effect), charging while
+off. **Not working:** camera. **Untested:** Bluetooth, suspend/resume and battery drain.
+Every applied fix, with its exact revert command, is in [device-fixes/README.md](device-fixes/README.md).
+Next: camera and the remaining unknowns per [docs/roadmap.md](docs/roadmap.md), then the Noble rootfs.

@@ -4,6 +4,72 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-20 (cont.) — FIX: rotation (sensors), and the charger-mode boot trap
+
+**Symptom:** no rotation. `dumpsys sensorservice` → **"No Sensors on the device"**;
+`vendor.sensors` / `sensors.qcom` exited with status 0 every ~10s.
+
+**Diagnosis:** not firmware. logcat gave the exact gate:
+
+```
+libsensor1: check_sensors_enabled: open error: settings file "/persist/sensors/sensors_settings", errno 2
+libsensor1: check_sensors_enabled: Sensors enabled = false
+libsensor1: wait_for_service: sensors setting disabled sensors
+Sensors : sns_main.c(447):Timeout waiting for SMGR service. Exit sensors daemon!
+```
+
+The daemon refuses to contact SMGR unless it can read `/persist/sensors/sensors_settings`.
+`/persist` never reached the container because (1) the rootfs ships `/persist -> /android/persist`,
+which does not exist — the partition (`mmcblk0p48`) is mounted at `/mnt/vendor/persist`; and (2) our
+`system.img` has no `persist` directory, so LXC's own
+`lxc.mount.entry = /persist persist bind bind,optional` silently skipped it.
+
+**Red herring:** `sensors-ssc: slpi_load_fw: SLPI image loading failed` and an empty
+`/vendor/firmware_mnt`. There is no SLPI image on this device at all — the SSC runs on the **ADSP**
+(`sysmon-qmi: Connection established between QMI handle and adsp's SSCTL service`). Chasing missing
+firmware would have been wasted effort; the logcat gate was the real signal.
+
+**Fix:** repoint the symlink, add an empty `/persist` mountpoint to the Android system image, and add
+`/etc/init/android-persist.conf` (see `device-fixes/README.md` #3). The system image was modified as
+an **unmounted copy** (`losetup` + `mount`, `e2fsck -fn` clean) and swapped in by rename, so the
+pristine original remains as `/userdata/android-rootfs.img.orig` — reverting is one `mv`.
+Result: **30 h/w sensors** (BMI120 accel + gyro, CM3232 light, ROHM hall effect) and rotation works.
+
+**Ordering matters:** `sensorfw` connects to Android's `sensorservice` at startup — long before the
+sensors exist — and then just logs `Poll failed status 2` forever. It must be restarted *after*
+sensorservice, which is what the new job does.
+
+### The charger-mode trap (this cost the most time)
+
+After the first reboot rotation worked but **the power button no longer blanked the screen**. The
+cause was not the sensor work at all. The tablet was plugged in, so the bootloader set
+`androidboot.mode=charger` — and a plain reboot while plugged in is indistinguishable from a cold
+charger insertion (`Power-on reason: Triggered from USB (USB charger insertion)` in both cases).
+UT's stock `/etc/init/lxc-android-config.override` then does:
+
+```sh
+if [ "$(getprop ro.bootmode)" = "charger" ]; then
+    echo u > /proc/sysrq-trigger      # emergency remount R/O — hits ALL filesystems
+    initctl emit -n charger           # 'android' is never emitted
+```
+
+Consequences on every plugged-in reboot: `/userdata` (home, settings, logs) goes **read-only** —
+which also made `scp` fail with a bare `dest open: Failure` — and every job that starts `on android`
+(`repowerd`, `sensorfw`, both of our jobs) never runs, while the UI still comes up. `initctl list`
+showing `repowerd stop/waiting` was the tell. Replaced the branch with a plain `initctl emit android`
+(no off-charging UI on this port anyway); original kept as `.orig` on device and in `backups/`.
+
+**Wrong turn worth recording:** I first blamed the duplicate `initctl restart repowerd` in my own new
+job for tripping upstart's respawn limit. It hadn't — `initctl restart` doesn't count toward the
+respawn limit, and repowerd was `stop/waiting` simply because the `android` event never fired.
+**Rule: before blaming your own change, check `initctl list` / whether the job's start event fired.**
+
+**Verified after a clean reboot with no manual commands:** 30 sensors, `repowerd`/`sensorfw`/
+`sensorservice` running, `/userdata` read-write, no emergency remount. Note repowerd is restarted
+several times in the first ~30-60s of boot while the sensor stack settles.
+
+---
+
 ## 2026-09-20 (cont.) — FIX: loud audio (speakers were never switched on)
 
 **Symptom:** sound worked but was very quiet. PulseAudio was innocent: sink at 100%, unmuted,

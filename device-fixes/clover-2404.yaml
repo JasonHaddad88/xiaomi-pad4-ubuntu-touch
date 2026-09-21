@@ -2,7 +2,6 @@
 # Install to /etc/deviceinfo/devices/clover.yaml
 #
 # Differs from the 16.04 version (device-fixes/clover.yaml) in one important way:
-# it does NOT set SensorfwConfig. On 16.04 the generic "halium" profile pointed
 # sensorfw at /etc/deviceinfo/sensorfw/hybris.conf; on 24.04 that file does not
 # exist. Instead sensorfw ships /etc/sensorfw/sensord.conf.d/30-hidl.conf, which
 # configures the hidl*adaptor plugins for every Halium device by default.
@@ -33,4 +32,3 @@ clover:
   # "HYBRIS CTL invalid sensor type: 1" / "no such sensor accelerometeradaptor".
   # 30-hidl.conf selects the hidl*adaptor plugins, which talk to the Halium
   # sensors HIDL service - the correct backend on this port.
-  SensorfwConfig: /etc/deviceinfo/sensorfw/clover.conf

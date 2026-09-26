@@ -4,6 +4,82 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-26 — CAMERA: the app stopped crashing. Two device nodes had the wrong mode.
+
+**Reported:** camera does not work. It turned out to be two independent layers; the first is fixed.
+
+### What already worked (so the reputation was misleading)
+Camera is supposed to be the hardest part of a Halium port, but almost the whole stack was fine:
+kernel driver powers the sensor (`msm_camera_power_up`, `msm_cci_init`, CSID v3.5), the HAL opens
+camera 0 (`openCamera ... rc: 0`), **both** cameras enumerate, preview sizes are negotiated, and the
+full capture-size list is reported (4160x3120 down to 144x176).
+
+### Layer 1 — the crash (FIXED)
+The app died with `status=6/ABRT` seconds after opening. The last line before the abort was
+
+```
+gralloc-mapper is missing
+```
+
+which `grep -a` located in **`/android/system/lib64/libui.so`** — Android's own libui, loaded into the
+app through libhybris. In AOSP, when `IMapper::getService()` fails, libui calls
+`LOG_ALWAYS_FATAL("gralloc-mapper is missing")`, an unconditional `abort()`.
+
+Everything it needed was present: `android.hardware.graphics.mapper@2.0-impl.so` (69,280 bytes),
+declared `passthrough` in the vendor VINTF manifest, with **all ten** of its dependencies resolvable.
+The actual cause:
+
+```
+crw-rw-rw-  /dev/binder      <- fine
+crw-------  /dev/hwbinder    <- 0600, root only
+crw-------  /dev/vndbinder   <- 0600, root only
+```
+
+Apps run as uid 32011, HIDL needs hwbinder, so `getService()` could never succeed. And
+`/android/ueventd.rc` specifies **0666** for all three - the modes simply never got applied on this
+port. No AppArmor denial appeared because the profile already allows
+`/dev/{,binderfs/}{,hw,vnd}binder rw`; it was a plain Unix permission failure.
+
+Fixed with `70-clover-binder.rules` **and** `clover-binder-perms.service` (belt and braces: these
+nodes are created very early, so a udev rule alone may not fire). Verified by breaking the modes back
+to 0600 and confirming the unit restores 0666.
+
+**Result:** zero aborts, zero `gralloc-mapper` messages, and the HAL now actually starts a stream -
+`mct_pipeline_start_stream_internal: Session stream linked successfully session 4`. The app opens and
+its UI is usable.
+
+### Layer 2 — no image yet (open)
+The stream starts and is then torn down (`num_streams is 0` -> `DEL_STREAM ... successfully deleted`)
+because the app never resolves a viewfinder:
+
+```
+qml: updateViewfinderResolution: viewfinder resolutions is not known yet
+QObject::connect: No such slot AalImageCaptureControl::onPreviewReady()
+m_surface is NULL, can't update video texture
+```
+
+A tempting theory is a version mismatch between the click app (camera.ubports 4.1.1) and
+`qtubuntu-camera`, but **the evidence does not support it cleanly**: `onPreviewReady` *is* present in
+`libaalcamera.so` and `AalViewfinderSettingsControl` exists, so the failing connect is a signature
+problem rather than a missing slot. Next cheap test: the device has three camera apps sharing one
+plugin (`camera.ubports_camera_4.1.1`, `com.ubuntu.camera_camera_3.2.4`, the barcode reader) - if any
+of them renders a picture, the fault is app-side, not plugin-side.
+
+### Method notes worth keeping
+- **`strings` is not installed**; use `grep -a`/`grep -ao` on binaries instead. An early search
+  "found nothing" purely because of this.
+- **Running the camera app directly over SSH is useless**: it dies at Qt platform init
+  (`QT_QPA_PLATFORM=mirserver` is not a valid plugin outside the launcher) long before touching
+  gralloc.
+- **With the screen off the app does not abort at all** - the crash needs the viewfinder to start in
+  the foreground, so every headless reproduction measured nothing.
+- `pgrep -x` silently matches nothing for names longer than 15 characters (`lomiri-camera-app`); use
+  `pgrep -f`.
+- Environment can be injected into a click app via a systemd **user** drop-in for
+  `lomiri-app-launch--application-click--<appid>--.service` - verified by reading `/proc/PID/environ`.
+
+---
+
 ## 2026-09-20 (cont.) — UPGRADED to Ubuntu Touch 24.04 (noble) — it boots
 
 The 16.04 rootfs was replaced with `24.04-1.x/arm64/android9plus/stable`, keeping our Halium 9

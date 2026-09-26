@@ -1,0 +1,25 @@
+# clover: enforce Android's binder node permissions at boot.
+#
+# Belt and braces alongside 70-clover-binder.rules: the binder nodes are created
+# very early by the kernel/devtmpfs, so a udev rule may not fire for them. This
+# unit applies the modes unconditionally once the filesystems are up, before
+# anything that needs HIDL (camera) can run.
+#
+# Without this, /dev/hwbinder reverts to 0600 on every boot and the camera app
+# aborts with "gralloc-mapper is missing".
+#
+# Install to /etc/systemd/system/ and: systemctl enable clover-binder-perms
+[Unit]
+Description=clover: Android binder node permissions (needed for HIDL/camera)
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs.target
+Before=lxc-android-config.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 0666 is what /android/ueventd.rc specifies for these nodes
+ExecStart=/bin/sh -c 'chmod 666 /dev/binder /dev/hwbinder /dev/vndbinder 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

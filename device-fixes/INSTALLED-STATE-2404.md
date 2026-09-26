@@ -1,72 +1,85 @@
 # Installed state — clover on Ubuntu Touch 24.04 (noble)
 
-Captured 2026-09-20, straight after the upgrade from 16.04. **Owner's first inspection: everything
-works except rotation.**
+Last verified **2026-09-26** against the running device. Every md5 below was read off the tablet.
 
 | | |
 |---|---|
-| OS | Ubuntu **24.04.4 LTS** (noble), `24.04-1.x/arm64/android9plus/stable` |
+| OS | Ubuntu **24.04.4 LTS** (noble), channel `24.04-1.x/arm64/android9plus/stable` |
 | kernel | `4.4.153-HandsomeKernel+` (ours, unchanged) |
-| init | **systemd** (16.04 was upstart — all the old upstart jobs are obsolete) |
+| init | **systemd** (the 16.04 upstart jobs are obsolete and gone) |
 | boot / android | our Halium 9 `halium-boot` + `android-rootfs.img`, unchanged |
-| vendor partition | unchanged, so the `mixer_paths.xml` audio fix still applies |
+| vendor partition | unchanged — the `mixer_paths.xml` audio fix still applies |
+| free space | **38 GB** on `/userdata`, **1.3 GB** on the read-only rootfs |
 
-## Access (changed from 16.04 — the old `ssh phablet@10.15.19.82` is gone)
+**Owner-confirmed working:** display, touch, GPU, Wi-Fi, audio (loud), brightness slider, screen
+off/wake via power button, **rotation**, Morph browser, charging while off.
+**Not working:** camera (next task). **Untested:** Bluetooth (deliberately masked), suspend/battery life.
+
+## Access
 
 | route | detail |
 |---|---|
-| **adb** | `adb devices` → `891bc6d1`. Needs Developer Mode on; authorise the prompt on the tablet once |
-| **ssh over Wi-Fi** | `ssh phablet@192.168.1.64` — **key and password both verified working** |
-| ssh key | `/root/.ssh/id_ed25519` in WSL; public key lives in the **persistent** home `/userdata/user-data/phablet/.ssh`, so it survives rootfs swaps |
-| USB RNDIS | 24.04 uses gadget `VID_1209&PID_0004`; Windows shows **Code 28** until the "Remote NDIS Compatible Device" driver is bound. Not needed while Wi-Fi works |
+| **ssh over Wi-Fi** | `ssh phablet@192.168.1.64` — key **and** password both work. This is the reliable route |
+| ssh key | `/root/.ssh/id_ed25519` in WSL; public key in the **persistent** home `/userdata/user-data/phablet/.ssh`, so it survives rootfs swaps |
+| **adb** | works only after Developer Mode is (re)armed. **After a fresh boot the USB gadget comes up as RNDIS** (`VID_1209&PID_0004`, Windows shows Code 28) and adb is absent until then |
+| old 16.04 route | `ssh phablet@10.15.19.82` is **dead** — `usb0` still holds that IP but is DOWN |
 
-Careful: `usb0` still holds `10.15.19.82` but is **DOWN**; Wi-Fi `wlan0` is the live route.
+## Files installed (md5 verified on device 2026-09-26)
 
-## Our fixes installed in this rootfs (md5 verified on device)
+| md5 | path on device | repo copy | purpose |
+|---|---|---|---|
+| `5dcaec6f8c0bef6d5b5460ca4b7d05be` | `/etc/sensorfw/sensord.conf.d/25-clover.conf` | `device-fixes/25-clover-sensorfw.conf` | **rotation** — overrides sensorfw's availability gate |
+| `5fe6fbffe31fcf3b09e325e6c2ae3e35` | `/etc/deviceinfo/devices/clover.yaml` | `device-fixes/clover-2404.yaml` | declares all four `SupportedOrientations` |
+| `b47a0d9fd526f0902b43904dd60a1223` | `/usr/share/repowerd/device-configs/config-clover.xml` | `device-fixes/config-clover.xml` | backlight range for this panel (min 40, **max 4095**, default 1640, dim 100) |
+| `e3b9913132136a7d5d6f667d12527278` | `/usr/local/bin/clover-persist-bind` | `device-fixes/clover-persist-bind.sh` | binds persist into the Android container so the sensors work |
+| `b1ab384d03b42d804d0b362045c45c8b` | `/etc/systemd/system/clover-persist-bind.service` | `device-fixes/clover-persist-bind.service` | runs the above at boot (oneshot, no `Restart=`) |
+| `ebebbbd9d189db96b6188c9b5b8090a7` | `~/.config/systemd/user/lomiri-app-launch--application-legacy--morph-browser--.service.d/50-clover-webengine.conf` | `device-fixes/50-webengine-clover.conf` | **the one that actually fixes Morph** — forces software video decode |
+| `a8ae74075f21ab7aa2f85a487e1ca9cd` | `~/.config/environment.d/50-webengine-clover.conf` | same | session-wide fallback for the above |
+| `0df57593e5e4318169220983cb0d8856` | `~/.local/bin/ct` | `device-fixes/ct` | run container tools (git, apt, …) from the terminal |
 
-| md5 | path | repo copy |
-|---|---|---|
-| `0eac56170fb5fe136895ea5b84a13dff` | `/etc/deviceinfo/devices/clover.yaml` | `device-fixes/clover-2404.yaml` |
-| `b47a0d9fd526f0902b43904dd60a1223` | `/usr/share/repowerd/device-configs/config-clover.xml` | `device-fixes/config-clover.xml` |
-| symlink | `/persist -> /mnt/vendor/persist` | — |
-| `PasswordAuthentication=yes` | `/etc/ssh/sshd_config.d/50-lxc-android-config.conf` | 24.04 ships `no`; changed so password auth still works |
+Also: `PasswordAuthentication=yes` in `/etc/ssh/sshd_config.d/50-lxc-android-config.conf`
+(24.04 ships `no`), and `/persist -> /mnt/vendor/persist`.
 
-Also enabled: `ssh.service`, `usb-tethering.service` (both `active`).
+## Service state
 
-## Confirmed on 24.04
-
-- `repowerd` **active** — screen control works, which on 16.04 required keeping Android's
-  `sensorservice` alive.
-- Android `sensorservice`: **0 processes**. Exactly as intended — 24.04's repowerd does not link
-  platform-api, so nothing needs it, and the single-poller sensors HAL is free.
-- `sensorfwd.service` **enabled and running** (note the unit is `sensorfwd`, *not* `sensorfw` as on
-  16.04 — querying the old name reports "could not be found" and looks like a fault when it isn't).
-  Running as `/usr/sbin/sensorfwd --systemd --device-info --log-level=warning`.
-- sensorfw config now comes from `/etc/sensorfw/sensord.conf.d/30-hidl.conf` (new `hidl*adaptor`
-  plugins) — which is why `clover.yaml` here must **not** set `SensorfwConfig`.
-
-## Rollback to 16.04 (two renames)
-
-`/userdata/rootfs.img.xenial` (3072 MB) is untouched on the device:
-
-```sh
-sudo mv /userdata/rootfs.img /userdata/rootfs.img.2404
-sudo mv /userdata/rootfs.img.xenial /userdata/rootfs.img
-sudo reboot
+```
+repowerd=active   sensorfwd=active   ssh=active
+clover-persist-bind=active           bluebinder=masked
 ```
 
-The 16.04 state and its fixes are documented in `INSTALLED-STATE.md`.
+`bluebinder` is **masked**, not merely disabled — plain `disable` was undone because
+`bluetooth.service` pulls it in, and it crash-looped every ~61 s. Re-enable with
+`sudo systemctl unmask --now bluebinder` if Bluetooth is ever wanted.
 
-## Still open
+## Libertine container
 
-- **Rotation** — the reason for the upgrade. sensorfw is running and the HAL is uncontested, so the
-  remaining question is whether sensorfw is actually reading the accelerometer and whether Lomiri is
-  acting on it. Not yet diagnosed.
-- First boot after the swap ended in Qualcomm crashdump mode (`05C6:900E`); a forced power-off and
-  retry booted fine. Watch whether it recurs.
-- Camera, Bluetooth, suspend/battery drain: untested on 24.04.
+- id `clover`, chroot type, **1.9 GB**, 6 registered apps
+- **Remmina** and **VLC** installed and working
+- `~/.local/bin/ct` gives terminal access to it
+- Full explanation and self-service guide: [`docs/libertine-guide.md`](../docs/libertine-guide.md)
 
-## Backups
+## Non-file state that matters
 
-`backups/ut-2404-2026-09-20/` — `clover.yaml`, `config-clover.xml`, `30-hidl.conf` pulled from the
-running device. The 16.04 binary backups remain in `backups/ut-working-2026-09-20/`.
+- gsettings `com.ubuntu.touch.system brightness` — must **never** be 0. Zero means the panel powers on
+  with the backlight off, which looks exactly like a dead screen/dead power button
+- gsettings `com.ubuntu.touch.system rotation-lock` = `false`
+- `/userdata/android-rootfs.img.pristine` — the untouched Halium system image (rollback for the
+  `/persist` mountpoint patch)
+
+## Rollback to 16.04
+
+No longer on the device — the image was moved to the PC to reclaim 3 GB:
+`backups/ut-working-2026-09-20/rootfs.img.xenial`, md5 **`bb98c95f85afd2b61ba764c64cb84915`**,
+verified identical to the device copy before deletion. To return to 16.04: push it back to
+`/userdata/rootfs.img.xenial`, then swap the two filenames and reboot. `halium-boot`, the Android
+system image and the vendor partition were never modified, so that path remains intact.
+
+## Rules that must not be broken
+
+1. **Never supervise an Android-container service with an upstart `respawn` job** (16.04) — UT's
+   watchdog reboots the whole device when a job hits its respawn limit. On 24.04, systemd units here
+   are `Type=oneshot` with no `Restart=` for the same reason.
+2. **Check what starts a service before disabling it.** `bluebinder` came straight back because
+   `bluetooth.service` wants it; masking was required.
+3. **Verify the capability, not a proxy for it.** "repowerd answers D-Bus" is not "the screen powers
+   on"; read `panel_power_on` *and* `/sys/class/leds/lcd-backlight/brightness`.

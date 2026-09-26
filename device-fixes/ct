@@ -1,0 +1,53 @@
+#!/bin/sh
+# ct - run a command (or a shell) inside the clover Libertine container.
+#
+# Why this exists: the Ubuntu Touch rootfs is read-only with ~1.3 GB free, and
+# its apt has no Ubuntu package indexes (only the UBports repo), so
+# "apt install git" on the host fails with "Unable to locate package git".
+# The Libertine container is a full Ubuntu 24.04 on /userdata with 39 GB free and
+# the whole archive available - it already has git and gcc. This gives terminal
+# access to it.
+#
+# Unlike Libertine's own app launcher, this binds your REAL home (not the
+# container's private user-data dir), so git/gcc/make operate on your actual
+# files. Everything else mirrors what Libertine does for its apps.
+#
+#   ct                 -> a bash shell inside the container
+#   ct git status      -> run git from the container, in the current directory
+#   ct gcc -o x x.c    -> compile with the container's toolchain
+#
+# Added 2026-09-26. Delete this file to revert; nothing else is affected.
+C="$HOME/.cache/libertine-container/clover/rootfs"
+
+if [ ! -d "$C" ]; then
+    echo "ct: container not found at $C" >&2
+    echo "ct: create one with: libertine-container-manager create -i clover -t chroot" >&2
+    exit 1
+fi
+
+# default to an interactive shell
+[ $# -eq 0 ] && set -- /bin/bash
+
+# keep the current directory if it exists inside the container's view, else home
+D="$(pwd)"
+case "$D" in
+    "$HOME"*) ;;      # under home: bound below, so it resolves
+    *) D="$HOME" ;;   # outside home: not visible in the container
+esac
+
+exec bwrap \
+    --bind "$C" / \
+    --dev-bind /dev /dev \
+    --proc /proc \
+    --ro-bind /sys /sys \
+    --tmpfs /run \
+    --bind /tmp /tmp \
+    --ro-bind /etc/resolv.conf /etc/resolv.conf \
+    --ro-bind /var/lib/extrausers /var/lib/extrausers \
+    --bind "$HOME" "$HOME" \
+    --bind /run/user/32011 /run/user/32011 \
+    --setenv HOME "$HOME" \
+    --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    --setenv TERM "${TERM:-xterm-256color}" \
+    --chdir "$D" \
+    fakeroot "$@"

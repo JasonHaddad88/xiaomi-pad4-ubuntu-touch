@@ -4,6 +4,106 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-09-26 (cont.) — CAMERA, layer 2: the image is black because the 32-bit VNDK-SP directory was never built
+
+**Reported:** "app opens and menu items are visible but no image is shown."
+
+### The measurement that mattered
+Nothing was visible to me, so the first job was building instruments:
+
+- **`keepDisplayOn` must be held open.** `com.canonical.Unity.Screen.keepDisplayOn` releases as soon
+  as the calling D-Bus connection closes, so `busctl call` turns the screen on for milliseconds. A
+  small python3-dbus script that calls it and then sleeps holds it properly.
+- **`com.lomiri.LomiriGreeter.HideGreeter`** dismisses the lock screen, and
+  **`com.lomiri.Shell.FocusInfo.isPidFocused`** proves an app is actually focused and rendering. This
+  matters: with the screen off, Lomiri suspends apps and every headless reproduction measures nothing.
+- **Apps can be launched over SSH** with `lomiri-app-launch <appid>`, and arbitrary test code can be
+  run as a *legacy* app by dropping a `.desktop` file in `~/.local/share/applications` — that is how
+  `qmlscene` gets a working Qt platform (there is no `wayland` QPA plugin, and `mirscreencast` is
+  rejected by Mir 1.8).
+- **QML can screenshot itself.** `Item.grabToImage()` + `saveToFile()` produced a PNG of the actual
+  rendered viewfinder, which could be pulled to the PC and inspected pixel by pixel.
+
+That last one turned opinion into fact: the video rectangle was correctly sized and letterboxed, and
+every one of 93,000 sampled pixels was exactly `RGB(0,0,0)` with **zero variance**. A real frame of a
+dark room still carries sensor noise; uniform zero is *no data*, not a dark scene.
+
+### Two wrong turns, recorded honestly
+1. **"The plugin has no `QCameraViewfinderSettingsControl2`, so `supportedViewfinderResolutions()` is
+   always empty."** True — the plugin only serves `cameraviewfindersettingscontrol/5.0` — but that is
+   the same binary every UT 24.04 device ships, so it cannot explain a device-specific fault. It is
+   upstream-wide noise, and so are the `ReferenceError: photoResolutionOptionsModel is not defined`
+   messages it causes.
+2. **"The app never starts the preview."** Wrong, and caused by a capture polluted by leftover app
+   instances from earlier tests. With a clean run `start_preview` fires normally. **Kill every
+   previous instance before measuring** — two live clients also make the camera collide with itself
+   (`camera_open failed. rc = -16`, `Camera 0 is already open`).
+
+A third near-miss: `camera-app.qml:104` maps only TopUp/TopDown/LeftUp/RightUp, so a tablet lying flat
+reports `FaceUp` (5) and the lookup yields `undefined` — the logged `Unable to assign [undefined] to
+int`. Real, and confirmed live (`ORIENT tick orientation=5 mapped=undefined`), but QML then keeps the
+previous `int` value of 0, which is a valid rotation. Cosmetic, not the cause.
+
+### The actual root cause
+With a minimal `qmlscene` app the camera reports `ActiveStatus` and a valid `2048x1536` source format,
+yet the frames are empty. `logcat` says why:
+
+```
+E/vndksupport( 5417): Could not load /vendor/lib/hw/android.hardware.graphics.mapper@2.0-impl.so
+                      from sphal namespace: dlopen failed:
+                      library "android.hardware.graphics.mapper@2.0.so" not found.
+E/ServiceManagement( 5417): Failed to dlopen android.hardware.graphics.mapper@2.0-impl.so
+F/Gralloc2( 5417): gralloc-mapper is missing
+F/DEBUG: #05 /vendor/lib/hw/camera.sdm660.so (qcamera::QCameraGrallocMemory::allocate(...)+832)
+```
+
+The same fatal message as the app crash, but in a **32-bit** process — note `/system/lib`, not
+`lib64`. `CameraService` aborts while allocating preview buffers, so no frame is ever produced.
+
+The linker config explains it exactly:
+
+```
+namespace.sphal.link.vndk.shared_libs = ... android.hardware.graphics.mapper@2.0.so ...
+namespace.vndk.search.paths += /system/${LIB}/vndk-sp-28
+```
+
+The impl is loaded into the **sphal** namespace, which resolves that dependency through the **vndk**
+namespace, whose only system path is `/system/${LIB}/vndk-sp-28`. On this image:
+
+| | |
+|---|---|
+| `/system/lib64/vndk-sp-28/` | exists, 31 libraries |
+| `/system/lib/vndk-sp-28/` | **does not exist at all** |
+
+So 64-bit resolves and 32-bit cannot. The library is not missing from the device — it is at
+`/system/lib/android.hardware.graphics.mapper@2.0.so` — it is simply in a directory that namespace is
+not allowed to search. **Our Halium build never populated the 32-bit VNDK-SP directory.**
+
+This also explains why fixing `/dev/hwbinder` earlier fixed the *crash* but not the *picture*: that
+fix let the 64-bit app get its mapper; the 32-bit HAL never had one.
+
+### The fix
+Create `/system/lib/vndk-sp-28/` inside `android-rootfs.img` and populate it with the 32-bit
+counterparts of the 64-bit set — 25 of the 31 exist in 32-bit form (3.8 MB); the 6 absent ones are all
+RenderScript (`libRS*`, `libbcinfo`, `libblas`, `libcompiler_rt`) and irrelevant to gralloc.
+
+The loop device is mounted **write-protected**, so `mount -o remount,rw /android` fails — the image
+must be modified as a copy and swapped in, which needs a reboot.
+
+### Rules this cost us
+- **Build the instrument before forming the theory.** Three hypotheses died the moment there was a
+  real screenshot and a pixel histogram.
+- **A string in a binary is not a symbol.** `onPreviewReady` appears in `libaalcamera.so` only because
+  `SLOT(onPreviewReady())` embeds the literal at the *connect* site; `nm -DC` shows the slot does not
+  exist. Check the symbol table, not `grep`.
+- **`requestControl` dispatches on IID strings, not class names** — grep for
+  `org.qt-project.qt.<control>/<ver>` when asking what a QtMultimedia plugin implements.
+- **A fault that reproduces with a 15-line `qmlscene` file is not in the app.** Reducing to a minimal
+  client cut the search space in half in one step.
+- **Kill leftovers before every camera measurement.**
+
+---
+
 ## 2026-09-26 — CAMERA: the app stopped crashing. Two device nodes had the wrong mode.
 
 **Reported:** camera does not work. It turned out to be two independent layers; the first is fixed.

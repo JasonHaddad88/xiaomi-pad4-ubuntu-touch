@@ -20,7 +20,7 @@ measuring it (`stddev 0.00 -> 67.05`). **Untested:** Bluetooth (deliberately mas
 
 | route | detail |
 |---|---|
-| **ssh over Wi-Fi** | `ssh phablet@192.168.1.64` — key **and** password both work. This is the reliable route |
+| **ssh over Wi-Fi** | `ssh phablet@<ip>` — key **and** password both work. This is the reliable route. The address is **DHCP and does move** (it went .64 → .66); if it stops answering, sweep the subnet for port 22 rather than assuming the device is down |
 | ssh key | `/root/.ssh/id_ed25519` in WSL; public key in the **persistent** home `/userdata/user-data/phablet/.ssh`, so it survives rootfs swaps |
 | **adb** | works only after Developer Mode is (re)armed. **After a fresh boot the USB gadget comes up as RNDIS** (`VID_1209&PID_0004`, Windows shows Code 28) and adb is absent until then |
 | old 16.04 route | `ssh phablet@10.15.19.82` is **dead** — `usb0` still holds that IP but is DOWN |
@@ -30,7 +30,7 @@ measuring it (`stddev 0.00 -> 67.05`). **Untested:** Bluetooth (deliberately mas
 | md5 | path on device | repo copy | purpose |
 |---|---|---|---|
 | `5dcaec6f8c0bef6d5b5460ca4b7d05be` | `/etc/sensorfw/sensord.conf.d/25-clover.conf` | `device-fixes/25-clover-sensorfw.conf` | **rotation** — overrides sensorfw's availability gate |
-| `5fe6fbffe31fcf3b09e325e6c2ae3e35` | `/etc/deviceinfo/devices/clover.yaml` | `device-fixes/clover-2404.yaml` | declares all four `SupportedOrientations` |
+| `fa349b8cbdc914958ef9baeb3980ee72` | `/etc/deviceinfo/devices/clover.yaml` | `device-fixes/clover-2404.yaml` | declares all four `SupportedOrientations`, and holds the device's display name (`PrettyName`) |
 | `b47a0d9fd526f0902b43904dd60a1223` | `/usr/share/repowerd/device-configs/config-clover.xml` | `device-fixes/config-clover.xml` | backlight range for this panel (min 40, **max 4095**, default 1640, dim 100) |
 | `e3b9913132136a7d5d6f667d12527278` | `/usr/local/bin/clover-persist-bind` | `device-fixes/clover-persist-bind.sh` | binds persist into the Android container so the sensors work |
 | `b1ab384d03b42d804d0b362045c45c8b` | `/etc/systemd/system/clover-persist-bind.service` | `device-fixes/clover-persist-bind.service` | runs the above at boot (oneshot, no `Restart=`) |
@@ -106,6 +106,33 @@ system image and the vendor partition were never modified, so that path remains 
    `bluetooth.service` wants it; masking was required.
 3. **Verify the capability, not a proxy for it.** "repowerd answers D-Bus" is not "the screen powers
    on"; read `panel_power_on` *and* `/sys/class/leds/lcd-backlight/brightness`.
+
+## Device name
+
+Renamed to **Sussudio** on 2026-09-26 (it was "Xiaomi Mi Pad 4"). The name lives in three places, all on
+the **read-only rootfs**, so a system-image update may reset them:
+
+| file | field | note |
+|---|---|---|
+| `/etc/deviceinfo/devices/clover.yaml` | `PrettyName` | what Settings → About shows; repo copy is authoritative |
+| `/etc/machine-info` | `PRETTY_HOSTNAME` | systemd's display name |
+| `/etc/hostname` + `/etc/hosts` | `sussudio` | the network name (was `ubuntu-phablet`) |
+
+`Names:` in the yaml was **left alone** — it is match data, not a label, and changing it risks the
+device no longer matching its own config, which would cost the rotation settings.
+
+Each file has a `.prerename` copy beside it on the device. To undo:
+
+```sh
+sudo mount -o remount,rw /
+for f in /etc/deviceinfo/devices/clover.yaml /etc/machine-info /etc/hostname /etc/hosts; do
+    sudo cp -a "$f.prerename" "$f"
+done
+sudo mount -o remount,ro / && sudo reboot
+```
+
+Changing the hostname without updating `/etc/hosts` makes every `sudo` print
+`unable to resolve host` and run slowly — change both together.
 
 ## Instruments
 

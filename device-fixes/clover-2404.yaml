@@ -16,7 +16,8 @@ clover:
   Names:
     - clover
     - "Xiaomi Mi Pad 4"
-  PrettyName: Xiaomi Mi Pad 4
+  # Display name only. Names: above is left alone - it is match data, not a label.
+  PrettyName: Sussudio
   SupportedOrientations:
     - Portrait
     - InvertedPortrait

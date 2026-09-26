@@ -13,7 +13,8 @@ Last verified **2026-09-26** against the running device. Every md5 below was rea
 
 **Owner-confirmed working:** display, touch, GPU, Wi-Fi, audio (loud), brightness slider, screen
 off/wake via power button, **rotation**, Morph browser, charging while off.
-**Not working:** camera (next task). **Untested:** Bluetooth (deliberately masked), suspend/battery life.
+**Camera: in progress** — the app no longer crashes and the HAL starts a stream, but the viewfinder is
+still black. **Untested:** Bluetooth (deliberately masked), suspend/battery life.
 
 ## Access
 
@@ -36,6 +37,8 @@ off/wake via power button, **rotation**, Morph browser, charging while off.
 | `ebebbbd9d189db96b6188c9b5b8090a7` | `~/.config/systemd/user/lomiri-app-launch--application-legacy--morph-browser--.service.d/50-clover-webengine.conf` | `device-fixes/50-webengine-clover.conf` | **the one that actually fixes Morph** — forces software video decode |
 | `a8ae74075f21ab7aa2f85a487e1ca9cd` | `~/.config/environment.d/50-webengine-clover.conf` | same | session-wide fallback for the above |
 | `0df57593e5e4318169220983cb0d8856` | `~/.local/bin/ct` | `device-fixes/ct` | run container tools (git, apt, …) from the terminal |
+| `dab9b32a22b99731c339dab99cb7c1de` | `/etc/udev/rules.d/70-clover-binder.rules` | `device-fixes/70-clover-binder.rules` | **camera** — `/dev/hwbinder` and `/dev/vndbinder` to 0666 as `ueventd.rc` intends |
+| `1d706856bb0a76f0610cdf2f913bed1d` | `/etc/systemd/system/clover-binder-perms.service` | `device-fixes/clover-binder-perms.service` | same, at boot — the nodes appear too early for udev alone to be trusted |
 
 Also: `PasswordAuthentication=yes` in `/etc/ssh/sshd_config.d/50-lxc-android-config.conf`
 (24.04 ships `no`), and `/persist -> /mnt/vendor/persist`.
@@ -45,7 +48,11 @@ Also: `PasswordAuthentication=yes` in `/etc/ssh/sshd_config.d/50-lxc-android-con
 ```
 repowerd=active   sensorfwd=active   ssh=active
 clover-persist-bind=active           bluebinder=masked
+clover-binder-perms=active/enabled
 ```
+
+`clover-binder-perms` was verified the honest way: the modes were reset to `0600` by hand, the unit was
+started, and both nodes came back `crw-rw-rw-`.
 
 `bluebinder` is **masked**, not merely disabled — plain `disable` was undone because
 `bluetooth.service` pulls it in, and it crash-looped every ~61 s. Re-enable with
@@ -83,3 +90,8 @@ system image and the vendor partition were never modified, so that path remains 
    `bluetooth.service` wants it; masking was required.
 3. **Verify the capability, not a proxy for it.** "repowerd answers D-Bus" is not "the screen powers
    on"; read `panel_power_on` *and* `/sys/class/leds/lcd-backlight/brightness`.
+
+## Temporary, remove when camera work ends
+
+`~/.config/systemd/user/lomiri-app-launch--application-click--camera.ubports_camera_4.1.1--.service.d/90-camera-debug.conf`
+— a diagnostic drop-in setting `HYBRIS_*` logging variables. It is not part of any fix.

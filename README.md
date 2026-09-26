@@ -22,6 +22,9 @@ running log — text we author and version-control.
 
 ## Contents
 
+- **[docs/how-this-port-works.md](docs/how-this-port-works.md) — start here.** The whole system
+  explained from scratch: what every component is, how it was built and installed, what broke and why,
+  and the rules that came out of it. Assumes no Android-porting knowledge.
 - [docs/roadmap.md](docs/roadmap.md) — phased plan & milestones
 - [docs/device-clover.md](docs/device-clover.md) — device hardware facts & partition layout
 - [docs/build-environment.md](docs/build-environment.md) — WSL2 + Halium build-env setup (start here)

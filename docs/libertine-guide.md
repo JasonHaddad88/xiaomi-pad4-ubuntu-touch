@@ -134,6 +134,65 @@ Brave also works, because it is the one mainstream browser still publishing arm6
 needs its own apt repo added inside the container, and Chromium's sandbox needs `--no-sandbox` in a
 chroot, which is a real security trade-off.
 
+## Installing a third-party `.deb` — worked example: Standard Notes
+
+Archive packages go in with `install-package`. A downloaded `.deb` is a different
+story: **`install-package` could not do it**, in two separate ways, and the working
+method is a plain root install inside the chroot.
+
+Standard Notes publishes real **arm64** Linux builds (unlike Firefox/Chromium, which are
+snap-only dead ends here), so it is a good template.
+
+```bash
+# 1. download, and check what you got before trusting it
+cd ~/Downloads
+BASE='https://github.com/standardnotes/app/releases/download/%40standardnotes/desktop%403.202.7'
+wget -O standard-notes-3.202.7-linux-arm64.deb "$BASE/standard-notes-3.202.7-linux-arm64.deb"
+wget -O SHA256SUMS "$BASE/SHA256SUMS"
+sha256sum -c SHA256SUMS 2>/dev/null | grep arm64        # must say OK
+dpkg-deb -I standard-notes-*.deb | grep -E 'Architecture|Installed-Size|Depends'
+```
+
+`Architecture: arm64` is the thing to check first — an amd64 package will install and
+then simply never run.
+
+```bash
+# 2. repair dpkg if any earlier apt run was interrupted (see below)
+R=~/.cache/libertine-container/clover/rootfs
+sudo chroot $R dpkg --configure -a
+
+# 3. install as real root inside the container
+sudo cp ~/Downloads/standard-notes-*.deb $R/tmp/
+sudo mount --bind /dev $R/dev; sudo mount --bind /proc $R/proc; sudo mount --bind /sys $R/sys
+sudo cp /etc/resolv.conf $R/etc/resolv.conf
+sudo chroot $R apt-get -o APT::Sandbox::User=root update
+sudo chroot $R env DEBIAN_FRONTEND=noninteractive \
+    apt-get -o APT::Sandbox::User=root install -y /tmp/standard-notes-3.202.7-linux-arm64.deb
+sudo umount -l $R/dev $R/proc $R/sys                    # always unmount afterwards
+sudo rm -f $R/tmp/standard-notes-*.deb
+```
+
+Libertine notices the new `.desktop` file by itself — no reboot was needed, and
+`libertine-container-manager list-apps -i clover` immediately showed
+`clover_standard-notes_0.0`.
+
+### Why the supported route fails
+
+| symptom | cause |
+|---|---|
+| `dpkg: error creating new backup file '/var/lib/dpkg/status-old': Operation not permitted` | an **earlier interrupted apt run** left dpkg mid-transaction; everything afterwards is refused until `dpkg --configure -a` |
+| `Could not open file /var/lib/apt/lists/partial/… (13: Permission denied)`, then `repository … no longer has a Release file` | apt drops to the `_apt` user for downloads, which cannot write a container tree owned by `phablet`. `-o APT::Sandbox::User=root` avoids it |
+| `dpkg: cannot access archive '/tmp/<pkg>.deb': No such file or directory` | `install-package` looked for the package inside the container without putting it there |
+
+### What to expect from an Electron app
+
+- **The Chromium sandbox survives.** The zygotes start normally under `bwrap`; `--no-sandbox`
+  was *not* needed. Do not weaken it out of superstition — check first.
+- **No GPU:** `Exiting GPU process due to errors during initialization` is normal and not
+  fatal; Chromium falls back to software rendering. It works, it is just heavy.
+- **It is big.** 115 MB download, **487 MB** installed — Electron ships its own browser.
+  Delete the `.deb` afterwards.
+
 ## The `ct` helper — container tools in the terminal
 
 Installed at `~/.local/bin/ct` (already on `PATH`). Why it exists: the Ubuntu Touch rootfs is
@@ -174,6 +233,10 @@ expects to be root.
   ```bash
   sudo chroot ~/.cache/libertine-container/clover/rootfs dpkg --configure -a
   ```
+  **This bites much later than you expect.** The cancelled calibre install left dpkg
+  mid-transaction, and the next install — days afterwards — failed with a permissions error
+  that looks nothing like "a previous run was interrupted". If an install fails oddly, run
+  the repair first before believing anything the error says.
 - **`gcc`/`make` are not installed** by default. `ct sudo apt install build-essential` (~200 MB) adds
   a full toolchain — the host has no compiler at all, so this is the way to build anything on-device.
 - **Size:** base container ~1.3 GB; with Remmina + VLC ~1.9 GB. It lives on `/userdata`, so it

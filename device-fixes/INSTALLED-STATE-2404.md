@@ -70,8 +70,12 @@ started, and both nodes came back `crw-rw-rw-`.
 
 ## Libertine container
 
-- id `clover`, chroot type, **1.9 GB**, 6 registered apps
-- **Remmina** and **VLC** installed and working
+- id `clover`, chroot type, **2.4 GB**
+- **Remmina**, **VLC** and **Standard Notes** installed and working
+- Standard Notes is the official arm64 `.deb` 3.202.7 (487 MB installed), sha256-verified,
+  registered as `clover_standard-notes_0.0`. It needed a root install inside the chroot —
+  `libertine-container-manager install-package` cannot handle a downloaded `.deb`; the recipe and
+  the reasons are in the guide
 - `~/.local/bin/ct` gives terminal access to it
 - Full explanation and self-service guide: [`docs/libertine-guide.md`](../docs/libertine-guide.md)
 

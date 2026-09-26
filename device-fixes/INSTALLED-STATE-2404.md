@@ -13,8 +13,8 @@ Last verified **2026-09-26** against the running device. Every md5 below was rea
 
 **Owner-confirmed working:** display, touch, GPU, Wi-Fi, audio (loud), brightness slider, screen
 off/wake via power button, **rotation**, Morph browser, charging while off.
-**Camera: in progress** — the app no longer crashes and the HAL starts a stream, but the viewfinder is
-still black. **Untested:** Bluetooth (deliberately masked), suspend/battery life.
+**Camera: working** — owner-confirmed, and verified here by grabbing the rendered viewfinder and
+measuring it (`stddev 0.00 -> 67.05`). **Untested:** Bluetooth (deliberately masked), suspend/battery life.
 
 ## Access
 
@@ -39,6 +39,16 @@ still black. **Untested:** Bluetooth (deliberately masked), suspend/battery life
 | `0df57593e5e4318169220983cb0d8856` | `~/.local/bin/ct` | `device-fixes/ct` | run container tools (git, apt, …) from the terminal |
 | `dab9b32a22b99731c339dab99cb7c1de` | `/etc/udev/rules.d/70-clover-binder.rules` | `device-fixes/70-clover-binder.rules` | **camera** — `/dev/hwbinder` and `/dev/vndbinder` to 0666 as `ueventd.rc` intends |
 | `1d706856bb0a76f0610cdf2f913bed1d` | `/etc/systemd/system/clover-binder-perms.service` | `device-fixes/clover-binder-perms.service` | same, at boot — the nodes appear too early for udev alone to be trusted |
+
+The camera also needs a change **inside the Android system image**, not a file on the rootfs:
+
+| | |
+|---|---|
+| what | `/system/lib/vndk-sp-28/` created and filled with 25 libraries |
+| why | the 32-bit `CameraService` aborted with `gralloc-mapper is missing`; the sphal namespace resolves the mapper's dependency only through `/system/${LIB}/vndk-sp-28`, and the 32-bit one was never built |
+| how | [`device-fixes/clover-vndk-sp-32.sh`](clover-vndk-sp-32.sh) — the loop device is write-protected, so the image is modified as a copy and swapped in |
+| live image md5 | `9354f91cba2f1eea4bdcc7a2f07ba467` |
+| revert | `mv /userdata/android-rootfs.img{,.vndk} && mv /userdata/android-rootfs.img{.old,} && reboot` |
 
 Also: `PasswordAuthentication=yes` in `/etc/ssh/sshd_config.d/50-lxc-android-config.conf`
 (24.04 ships `no`), and `/persist -> /mnt/vendor/persist`.
@@ -72,6 +82,8 @@ started, and both nodes came back `crw-rw-rw-`.
 - gsettings `com.ubuntu.touch.system rotation-lock` = `false`
 - `/userdata/android-rootfs.img.pristine` — the untouched Halium system image (rollback for the
   `/persist` mountpoint patch)
+- `/userdata/android-rootfs.img.old` and `…​.prevndk` — the pre-camera-fix image, both
+  md5 `775635294f5a518f1d98b58560d3558b`. Keep at least one; `/userdata` has 38 GB free
 
 ## Rollback to 16.04
 
@@ -91,7 +103,10 @@ system image and the vendor partition were never modified, so that path remains 
 3. **Verify the capability, not a proxy for it.** "repowerd answers D-Bus" is not "the screen powers
    on"; read `panel_power_on` *and* `/sys/class/leds/lcd-backlight/brightness`.
 
-## Temporary, remove when camera work ends
+## Instruments
 
-`~/.config/systemd/user/lomiri-app-launch--application-click--camera.ubports_camera_4.1.1--.service.d/90-camera-debug.conf`
-— a diagnostic drop-in setting `HYBRIS_*` logging variables. It is not part of any fix.
+There is no way to screenshot this device from a PC (Mir 1.8 has no `wlr-screencopy`,
+`mirscreencast` is refused, `grim` is not installed). The workarounds — holding the display on,
+dismissing the greeter, proving an app is focused, and having QML grab its own output — are kept in
+[`scripts/device/camera-probe/`](../scripts/device/camera-probe/). Nothing from them is left
+installed on the device.

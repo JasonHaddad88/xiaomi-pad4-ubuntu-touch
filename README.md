@@ -40,8 +40,13 @@ over USB tethering (`ssh phablet@10.15.19.82`). Installed **without TWRP** (it h
 halium initrd debug shell — full method in [docs/porting-log.md](docs/porting-log.md), tools in
 [scripts/device/](scripts/device/).
 
-**Working (2026-09-20):** display + touch, GPU, Wi-Fi, battery reading, screen turn-off, brightness slider,
-loud audio, charging while off, screen dim/blank/wake with a correct backlight range and a working brightness slider, and all 30
-sensors present. **Not working:** rotation (sensors work, the UI does not rotate yet), camera. **Untested:** Bluetooth, suspend/resume and battery drain.
-Every applied fix, with its exact revert command, is in [device-fixes/README.md](device-fixes/README.md).
-Next: camera and the remaining unknowns per [docs/roadmap.md](docs/roadmap.md), then the Noble rootfs.
+**Now on Ubuntu Touch 24.04** (channel `24.04-1.x/arm64/android9plus/stable`) — see
+[docs/upgrade-2404.md](docs/upgrade-2404.md).
+
+**Working (2026-09-26):** display + touch, GPU, Wi-Fi, audio (loud), battery reading, charging while
+off, screen dim/blank/wake with a correct backlight range, brightness slider, all 30 sensors,
+**rotation**, Morph browser, Libertine desktop apps, and the **camera**.
+**Untested:** Bluetooth (deliberately masked), suspend/resume and battery drain.
+Current device state and every md5 is in
+[device-fixes/INSTALLED-STATE-2404.md](device-fixes/INSTALLED-STATE-2404.md); each fix with its exact
+revert command is in [device-fixes/README.md](device-fixes/README.md).

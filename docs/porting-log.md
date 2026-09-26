@@ -90,6 +90,35 @@ RenderScript (`libRS*`, `libbcinfo`, `libblas`, `libcompiler_rt`) and irrelevant
 The loop device is mounted **write-protected**, so `mount -o remount,rw /android` fails — the image
 must be modified as a copy and swapped in, which needs a reboot.
 
+### Outcome — the camera works
+
+Applied with [`device-fixes/clover-vndk-sp-32.sh`](../device-fixes/clover-vndk-sp-32.sh) and rebooted.
+Owner-confirmed, and verified here with the same harness on the same scene:
+
+| | min | max | mean | stddev | non-zero | PNG |
+|---|---|---|---|---|---|---|
+| before | 0 | 0 | 0.00 | 0.00 | 0.00% | 10,843 B |
+| after | 0 | 255 | 138.67 | 67.05 | 96.48% | 1,335,729 B |
+
+`gralloc-mapper is missing` aborts since boot: **0**. Container, repowerd, sensorfwd, ssh and both
+clover units all active; binder nodes still `0666`; rotation and persist unaffected.
+
+### A scare worth recording
+After the reboot the tablet was unreachable — no ping, and a port-22 sweep of the whole subnet found
+nothing — while Windows still enumerated its USB gadget. I concluded the change had broken the Android
+container (Wi-Fi depends on it) and told the owner so, with a rollback command. **That was wrong.** The
+device had simply not rejoined Wi-Fi yet; it came back on its own and the camera worked. The lesson is
+not to convert a single failed probe into a diagnosis: "unreachable" and "broken" are different claims,
+and adb showing `offline` was fully explained by Developer Mode needing to be re-armed after boot.
+
+Also worth noting: the honest uncertainty in that message was real. Copying `/system/lib` libraries
+into a `vndk-sp` directory *is* questionable in principle — the VNDK-SP set is meant to hold specially
+built variants, and duplicate copies of `libutils`/`libhidlbase` in one process are exactly what VNDK
+exists to prevent. It happens to be fine here (the mapper library is byte-identical between the two
+directories in the 64-bit set), but if anything vendor-side misbehaves later, this is the first place
+to look, and the minimal version of the fix is the single file
+`android.hardware.graphics.mapper@2.0.so`.
+
 ### Rules this cost us
 - **Build the instrument before forming the theory.** Three hypotheses died the moment there was a
   real screenshot and a pixel histogram.

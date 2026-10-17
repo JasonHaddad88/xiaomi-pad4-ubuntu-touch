@@ -267,7 +267,9 @@ supposed to clear that flag once it starts. TWRP hung before clearing it — so 
 went back to the hanging recovery**, including a plain power-button press. The tablet looked bricked.
 
 Escape: an **Android phone as the fastboot host** (the *Bugjaeger* app over USB-C OTG), because the
-Windows PC couldn't talk to the bootloader at all. Then:
+Windows PC couldn't talk to the bootloader at all. (**Solved 2026-10-17** — Windows was crashing the
+bootloader with USB 3 descriptor queries; two `usbflags` registry values fixed it and the PC now does
+fastboot directly. See the porting log.) Then:
 
 ```
 fastboot erase misc
@@ -483,7 +485,7 @@ all RenderScript, irrelevant here). Same measurement afterwards:
 
 **Host too new.** An Android 9 build system on a 2026 Linux. Mechanical; five shims.
 
-**Device-specific traps.** TWRP hangs; the `misc` recovery loop; the PC cannot drive the bootloader's
+**Device-specific traps.** TWRP hangs; the `misc` recovery loop; the PC appeared unable to drive the bootloader's
 fastboot (a phone can); EDL is authentication-locked; ancient on-device `e2fsprogs`.
 
 **Architectural conflicts.** One kernel and one HAL shared by two systems: the single-client sensors

@@ -4,6 +4,81 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-10-17 — SOLVED: fastboot from the PC. It was never a missing driver.
+
+**Believed since June, and wrong:** *"the clover bootloader fastboot (USB `18D1:D00D`) is unusable on
+this Windows PC."* That claim shaped the whole workflow — every `fastboot` step was routed through an
+Android phone running Bugjaeger, because the PC "couldn't do it".
+
+### What was actually happening
+
+Plugging the tablet into the PC in fastboot made the bootloader print **"Press any key to shutdown"**
+— *before any command was sent, and with no adb server running*. It died during USB **enumeration**,
+not during a transfer.
+
+Windows interrogates every newly attached device for a **BOS descriptor** (a USB 3 era structure) and
+a **Container ID**. Qualcomm's `aboot` predates both and crashes on them. The fix is two registry
+flags telling Windows to skip those queries for this one device ID:
+
+```
+HKLM\SYSTEM\CurrentControlSet\Control\usbflags\18D1D00D0100
+    SkipBOSDescriptorQuery = 1   (DWORD)
+    SkipContainerIdQuery   = 1   (DWORD)
+```
+
+The key name is VID+PID+REV = `18D1`+`D00D`+`0100`. It already existed holding only `osvc`, which is
+Windows *caching* that the device has no MS OS descriptors — not a fix.
+
+With both values set, the bootloader enumerates cleanly:
+
+```
+$ fastboot devices
+891bc6d1     fastboot
+$ fastboot getvar product
+product: clover
+$ fastboot boot boot.img
+Sending 'boot.img' (25032 KB)   OKAY [  0.602s]
+Booting                         OKAY [  0.064s]
+```
+
+**The phone is no longer required for anything.**
+
+### Why it fits every observation
+
+| observation | explained by |
+|---|---|
+| dies on plug-in, no command sent | BOS / Container-ID queries happen at enumeration |
+| works from an Android phone | Android does not issue those queries |
+| Ubuntu Touch + Halium initrd work on the same PC and cable | modern Linux gadget stacks answer them correctly |
+| this PC is **xHCI-only** (no EHCI at all) | BOS queries are USB 3 host behaviour |
+
+### Three wrong turns first, recorded because they cost the time
+
+1. **"usbipd is stealing the device."** It had a *persisted* binding named "Android" and `vboxusb.inf`
+   was in the driver store. Plausible — but checking which devices were actually bound to `VBoxUSB`
+   showed only unrelated Doogee entries. Unbinding changed nothing.
+2. **"the adb server is probing the bootloader."** The device binds as *"Android Sooner Single ADB
+   Interface"*, so an ADB handshake against `aboot` looked likely. Killing the adb server changed
+   nothing.
+3. **"the driver binding is wrong."** It is not: the INF entry is `%HWFASTBOOT%` in `hw_goadb.inf`
+   (`oem194.inf`), bound to **WinUSB** — exactly what `fastboot.exe` needs. Only the *friendly name*
+   is misleading.
+
+Each theory explained the symptom but not the whole pattern. The question that cracked it was the
+owner's: *"if it works from Android then of course it has to work from PC."* That reframed it from
+"this hardware can't" to "something in this host's USB stack does something Android doesn't", which
+points straight at enumeration-time descriptor queries.
+
+### Rules this cost us
+- **A past failure is not a permanent property.** "Fastboot doesn't work on this PC" was true once,
+  written down as fact, and never re-tested for four months.
+- **Distinguish "fails during enumeration" from "fails during a command."** Nothing in userspace can
+  explain a device that dies before enumeration completes.
+- `usbflags` + `SkipBOSDescriptorQuery` / `SkipContainerIdQuery` is the standard cure for Qualcomm
+  bootloaders on modern Windows. Try it before blaming drivers.
+
+---
+
 ## 2026-09-26 (cont.) — CAMERA, layer 2: the image is black because the 32-bit VNDK-SP directory was never built
 
 **Reported:** "app opens and menu items are visible but no image is shown."

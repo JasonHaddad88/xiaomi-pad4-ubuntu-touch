@@ -4,6 +4,82 @@ Newest entries at the top. Record decisions, what we tried, errors, and fixes �
 
 ---
 
+## 2026-10-18 — NURA (postmarketOS): Wi-Fi fixed, two upstream bugs found, speakers are a dead end
+
+Full write-up: [nura-port.md](nura-port.md). Nura is postmarketOS, renamed 2026-09-27. `xiaomi-clover`
+is already a supported device, so this was an install plus repairs, not a port. It runs from the SD
+card; **Ubuntu Touch on internal storage was never touched.**
+
+### Fixed: `msm-firmware-loader` never ran (upstream bug, affects every device using it)
+
+```
+msm-firmware-loader.sh[405]: mount: /run/msm-firmware-loader: mount point does not exist.
+```
+
+The script mounts a tmpfs at `$BASEDIR` without creating the directory, while running before udev. It
+then creates `$BASEDIR/mnt` — the children, never the parent. The mount fails, the loader aborts, and
+**no vendor firmware partition is ever exposed**. One line fixes it:
+
+```sh
+mkdir -p "$BASEDIR"
+mount -o mode=755,nodev,noexec,nosuid -t tmpfs none "$BASEDIR"
+```
+
+### Fixed: Wi-Fi had no calibration data
+
+`board_id 0xff` means unprogrammed. ath10k keys its calibration lookup on that, finds only an empty
+placeholder in the stock `board-2.bin` (`crc32 00000000`), so TX power cannot be set and the firmware
+crashes the instant a connection is attempted — scanning worked, association never did.
+
+Installing the vendor BDF as `board.bin` does **not** work: WCN3990 never falls back to the api-1
+path, and ath10k then logs no `board_file` line at all. The fix is a real `board-2.bin` built with
+Qualcomm's `ath10k-bdencoder` from **this tablet's own** `bdwlan.bin`, keyed to `qmi-board-id=ff`.
+Recipe: [`device-fixes/nura/build-board-2.sh`](../device-fixes/nura/build-board-2.sh).
+**Wi-Fi now associates and holds.**
+
+### Fixed: Ubuntu Touch was silently corrupting the SD card on every boot
+
+The worst bug of the day, and it masqueraded as a GPU fault. udisks2 auto-mounts the Nura card on
+every UT boot. The card uses `metadata_csum`/`orphan_present`; the 4.4 kernel refuses RDWR for them
+but **still replays the ext4 journal**, writing metadata it cannot checksum. After any unclean Nura
+shutdown the card was quietly wrecked — `e2fsck` could see **12 files** where there were 33,151 — and
+Nura booted to a black screen with `a5xx gpu fault` / `hangcheck recover`.
+
+I caused the first instance by mounting the card `-o ro` and assuming read-only meant no writes. It
+does not: **`-o ro,noload` is required**, `noload` being the part that suppresses journal replay. But
+it then kept happening by itself, because udisks2 was doing it automatically. Fixed with a udev rule
+([`99-clover-no-sdcard-automount.rules`](../device-fixes/nura/99-clover-no-sdcard-automount.rules)).
+
+### Not fixable from userspace: speakers
+
+Headphones work; speakers are silent, and it is not a jack-detect fault or a UCM oversight:
+
+- clover's UCM defines only `Headphones` and `Headset Mic`
+- **no** SDM660 device defines a speaker (`tulip`, `lavender`, `jasmine` — all zero)
+- the device tree's `audio-routing` has no speaker widget
+- of **1,217** mixer controls there is no `SPK`; only `SPK DAC Switch` (enabling it does nothing),
+  `HPHL`, `HPHR`, `EAR_S`
+- Android's recipe is a single DAPM switch, `<ctl name="SPK" value="Switch"/>`, and that widget does
+  not exist in this kernel
+- there is **no amplifier on I2C** (only the touchscreen), so it is the codec's own speaker output
+
+So "Audio: Partial" means headphones only, by design, across the whole SoC family. Fixing it needs the
+speaker route added to the DTS and a kernel rebuild.
+
+### Rules this cost us
+- **`-o ro` does not mean "will not write" for ext4.** Journal replay happens anyway. Use `ro,noload`
+  on any filesystem a newer kernel wrote.
+- **Check whether the host OS is quietly mounting things.** The corruption persisted after I stopped
+  mounting the card by hand, because udisks2 was doing it for me.
+- **Read whole log lines, not fragments.** `chip_id 0x00000000` is always zero on WCN3990 (non-BMI)
+  and says nothing; `crc32 17fea018` is the *firmware* CRC, not the board file's. Two wrong diagnoses
+  came from reasoning off partial quotes relayed by hand — which is also the argument for getting a
+  shell before theorising.
+- **An image rewrite restores the image's journal.** Logs of the run you are debugging are destroyed
+  by the next write; capture them first.
+
+---
+
 ## 2026-10-17 — SOLVED: fastboot from the PC. It was never a missing driver.
 
 **Believed since June, and wrong:** *"the clover bootloader fastboot (USB `18D1:D00D`) is unusable on

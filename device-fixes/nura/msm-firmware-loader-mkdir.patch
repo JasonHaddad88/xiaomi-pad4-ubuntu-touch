@@ -1,0 +1,36 @@
+Fix msm-firmware-loader: create $BASEDIR before mounting a tmpfs on it
+
+Upstream bug in Nura (postmarketOS). msm-firmware-loader.sh mounts a tmpfs at
+$BASEDIR without creating the directory first. The service runs very early
+(DefaultDependencies=no, Before=systemd-udevd.service), before anything else has
+created that path, so the mount fails and the whole loader aborts:
+
+    msm-firmware-loader.sh[405]: mount: /run/msm-firmware-loader: mount point does not exist.
+
+The consequence is that NO vendor firmware partition is ever exposed to the
+kernel. On clover that means ath10k has no board calibration data and no MAC,
+so Wi-Fi scans but can never associate.
+
+Note the script already does `mkdir -p "$BASEDIR/mnt"` immediately afterwards --
+it creates the children but never the parent.
+
+This affects every device that relies on msm-firmware-loader, not just clover.
+
+Apply to /usr/bin/msm-firmware-loader.sh:
+
+--- a/usr/bin/msm-firmware-loader.sh
++++ b/usr/bin/msm-firmware-loader.sh
+@@
+ # This script is intended to run before udev. This means that writeable fs
+ # may not be available yet. Since this script only creates symlinks, it
+ # uses tmpfs to work around the early-run limitations as well as to reduce
+ # disk wear slightly.
++mkdir -p "$BASEDIR"
+ mount -o mode=755,nodev,noexec,nosuid -t tmpfs none "$BASEDIR"
+
+Verified fixed: the unit now reports
+    systemd[1]: Finished Load firmware that is located on dedicated partitions of qcom devices.
+and /run/msm-firmware-loader/mnt/{vendor,modem,persist,dsp} are populated.
+
+Applied offline with the card's image loop-mounted on a modern kernel; Ubuntu
+Touch's 4.4 kernel can only mount that filesystem read-only (orphan_present).

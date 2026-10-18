@@ -1,0 +1,33 @@
+# Install on UBUNTU TOUCH as /etc/udev/rules.d/99-clover-no-sdcard-automount.rules
+# (rootfs is read-only: sudo mount -o remount,rw / ... then remount,ro)
+#
+# WHY THIS EXISTS
+#
+# The Nura SD card's root filesystem uses metadata_csum, metadata_csum_seed,
+# 64bit and orphan_present. Ubuntu Touch runs a 4.4 kernel which does not
+# understand orphan_present, so it refuses a read-write mount:
+#
+#     EXT4-fs (mmcblk1p2): couldn't mount RDWR because of unsupported optional features (10000)
+#
+# but udisks2 auto-mounts the card anyway on every boot, and ext4 STILL REPLAYS
+# THE JOURNAL even for a read-only mount:
+#
+#     EXT4-fs (mmcblk1p2): INFO: recovery required on readonly filesystem
+#     EXT4-fs (mmcblk1p2): write access will be enabled during recovery
+#
+# A kernel that cannot maintain those checksums then writes metadata anyway. After
+# any unclean Nura shutdown this silently corrupts the card:
+#
+#     Group 18 block bitmap does not match checksum.
+#     Orphan file (inode 12) block 65 is not clean.
+#     pmOS_root: ********** WARNING: Filesystem still has errors **********
+#
+# e2fsck could see 12 files where there were 33,151, and Nura booted to a black
+# screen. This happened repeatedly before the cause was understood.
+#
+# Keep udisks2 away from the card entirely.
+SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_IGNORE}="1"
+
+# When you DO need to read the card from Ubuntu Touch, always use:
+#     sudo mount -o ro,noload /dev/mmcblk1p2 /mnt/nura
+# Plain "-o ro" is NOT enough - noload is what suppresses the journal replay.

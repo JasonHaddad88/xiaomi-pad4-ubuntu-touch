@@ -1,0 +1,7 @@
+# Append to main/wpa_supplicant's `config` (the build-time feature list).
+
+# Enable WEP. Required for the owner's home network (Blink7183AD), which the
+# router only offers as WEP. Upstream disabled WEP by default in 2.10; without
+# this NetworkManager refuses the connection with
+# "wpa_supplicant does not support WEP encryption".
+CONFIG_WEP=y

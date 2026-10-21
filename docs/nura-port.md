@@ -17,7 +17,7 @@ sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 | kernel | **mainline 7.0.14-sdm660** | Android 4.4.153 fork |
 | Android container / libhybris | **none** | required |
 | display, touch, 3D | works (but see the black-screen bug) | works |
-| **Wi-Fi** | **works — fixed here, see below** | works |
+| **Wi-Fi** | **works, WEP included — fixed here, see below** | works |
 | **speakers** | **no — not implemented in mainline at all** | works, loud |
 | headphones | works | works |
 | camera | no | **works** |
@@ -162,6 +162,43 @@ SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_IGNORE}="1"
 
 **And never mount the card from Ubuntu Touch without `-o ro,noload`.** Plain `-o ro` is not enough —
 ext4 replays the journal on a read-only mount. `noload` is what actually prevents it.
+
+## Fix 4 — WEP: `wpa_supplicant` could not join the home network
+
+With Fix 2 in place Wi-Fi worked on every network **except the one that matters** — the
+owner's home network, `Blink7183AD`, which the router only offers as **WEP**. NetworkManager
+refused it before the radio was ever touched:
+
+```
+Connection activation failed: no suitable device found for this connection
+(wpa_supplicant does not support WEP encryption)
+```
+
+`wpa_supplicant` 2.10 moved WEP behind the build-time option `CONFIG_WEP` and **turned it
+off**. It is not a runtime setting — the key-management code is simply not compiled in, and
+NetworkManager reads that from the capabilities the daemon advertises on D-Bus. No profile
+edit, `nmcli` flag or driver option can get around it.
+
+**Fix:** rebuild the package with `CONFIG_WEP=y`. Full recipe, built packages and checksums:
+[`device-fixes/nura/wpa_supplicant-wep/`](../device-fixes/nura/wpa_supplicant-wep/).
+
+```sh
+pmbootstrap --no-cross build wpa_supplicant     # --no-cross is global, before `build`
+```
+
+Two traps cost real time here:
+
+- **`strings wpa_supplicant | grep wep_key0` matches even when WEP is compiled out**, because
+  the config parser's key table survives. That output was twice mistaken for proof of
+  support. It proves nothing; only an actual association does.
+- The cross build fails with `'-fuse-linker-plugin', but liblto_plugin.so not found` —
+  crossdirect plus LTO. `--no-crossdirect` is not a real flag.
+
+**Result: the tablet associates with the WEP network and holds it,** with working DNS and
+browsing. `pkgrel=99` keeps `apk` from replacing the package on upgrade.
+
+WEP is broken encryption and this does not change that; the package exists because it is the
+only network at the device's location.
 
 ## Not fixed — speakers are not implemented in mainline
 

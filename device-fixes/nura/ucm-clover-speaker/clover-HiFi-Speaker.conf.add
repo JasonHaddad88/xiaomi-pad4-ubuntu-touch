@@ -1,0 +1,38 @@
+# Append to /usr/share/alsa/ucm2/Xiaomi/clover/HiFi.conf
+#
+# Modelled on Qualcomm/apq8016-sbc/HiFi.conf, which drives the SAME analog
+# codec (qcom,pm8916-wcd-analog-codec) through its internal SPK DAC.
+#
+# Name prefixes matter and differ between the two boards. clover's DTS gives the
+# digital codec `sound-name-prefix = "Digital"`, so every digital control gains
+# that prefix; the analog codec has no prefix, so `SPK DAC Switch` does not.
+# apq8016 has no prefix on either, which is why its file says `RX3 MIX1 INP1`
+# where clover needs `Digital RX3 MIX1 INP1`.
+
+SectionDevice."Speaker" {
+	Comment "Built-in Speaker"
+
+	ConflictingDevices [
+		"Headphones"
+	]
+
+	EnableSequence [
+		cset "name='Digital RX3 MIX1 INP1' RX1"
+		# Named *Mute*, so 0 means audible. Setting this to 1 silences the
+		# path; that mistake is what made an earlier test look like missing
+		# hardware support.
+		cset "name='Digital RX3 Mute Switch' 0"
+		cset "name='Digital RX3 Digital Volume' 84"
+		cset "name='SPK DAC Switch' 1"
+	]
+
+	DisableSequence [
+		cset "name='SPK DAC Switch' 0"
+		cset "name='Digital RX3 MIX1 INP1' ZERO"
+	]
+
+	Value {
+		PlaybackPCM "hw:${CardId},0"
+		PlaybackPriority 300
+	}
+}

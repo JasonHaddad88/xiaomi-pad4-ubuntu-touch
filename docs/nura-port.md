@@ -18,7 +18,7 @@ sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 | Android container / libhybris | **none** | required |
 | display, touch, 3D | works (but see the black-screen bug) | works |
 | **Wi-Fi** | **works, WEP included — fixed here, see below** | works |
-| **speakers** | **no — not implemented in mainline at all** | works, loud |
+| **speakers** | **no — cause still open, candidate fix untested** | works, loud |
 | headphones | works | works |
 | camera | no | **works** |
 | Bluetooth | reported working | masked (crash-looped) |
@@ -200,22 +200,43 @@ browsing. `pkgrel=99` keeps `apk` from replacing the package on upgrade.
 WEP is broken encryption and this does not change that; the package exists because it is the
 only network at the device's location.
 
-## Not fixed — speakers are not implemented in mainline
+## Open — speakers: an earlier conclusion here was wrong
 
-Headphones work; **speakers produce nothing**, and this is not a configuration problem.
+Headphones work; **speakers still produce nothing**. This section previously said that was
+unfixable without a kernel rebuild, because mainline had no speaker support for this SoC.
+**That was wrong**, and the reasoning behind it does not survive checking the compiled DTB
+and the shipped UCM tree:
 
-- The clover UCM defines only `Headphones` and `Headset Mic`. There is **no speaker device**.
-- Neither do `tulip`, `lavender` or `jasmine` — **no SDM660 device has speaker support**.
-- The device tree's `audio-routing` contains only headphone, earpiece and mic paths. **No speaker
-  widget.**
-- Across **1,217** mixer controls there is no `SPK` control — only `SPK DAC Switch` (enabling it
-  changes nothing), `HPHL`, `HPHR`, `EAR_S`.
-- Android's own recipe is a single switch: `<path name="speaker"><ctl name="SPK" value="Switch" /></path>`.
-  That DAPM widget does not exist in this kernel because the route was never declared.
-- There is **no amplifier on I2C** — the only I2C device is the touchscreen — so this is the codec's
-  own speaker output, not an external smart amp.
+- `audio-routing` was said to contain "only headphone, earpiece and mic paths, no speaker
+  widget". It contains **no headphone paths either** — and headphones work. What it does
+  contain is `"PDM_RX3", "Digital PDM_RX3"`, and `PDM_RX3` is exactly the input the
+  `SPK DAC` takes. The speaker feed **is** declared.
+- "No SDM660 device has speaker support" — `tulip` and `jasmine` both ship a
+  `SectionDevice."Speaker"`. Theirs drives a **TAS2557 smart amp on `PRI_MI2S`**, which
+  clover does not have, so their recipe does not transfer. But the claim as written was
+  false.
+- "`SPK DAC Switch` — enabling it changes nothing" was measured in a test where
+  `Digital RX3 Mute Switch` had been set to `1`. **That control is named *Mute*: `1` means
+  muted.** The test silenced the path it was testing.
 
-Fixing it means adding the speaker route to the clover DTS and rebuilding the kernel.
+The analog codec is `qcom,pm8916-wcd-analog-codec`, instantiated inside the PMIC, and its
+interrupts include `cdc_spk_cnp_int`, `cdc_spk_clip_int`, `cdc_spk_ocp_int` — speaker
+click-and-pop, clipping and over-current. That driver implements a speaker.
+
+`Qualcomm/apq8016-sbc/HiFi.conf` drives the **same codec** through its internal `SPK DAC`,
+which gives a known-good sequence to copy — with one trap: clover's DTS puts
+`sound-name-prefix = "Digital"` on the digital codec, so its controls are
+`Digital RX3 MIX1 INP1` and so on, while the analog `SPK DAC Switch` is unprefixed. apq8016
+prefixes neither, so copying its file verbatim does nothing at all.
+
+**Candidate fix and an on-device test, not yet run:**
+[`device-fixes/nura/ucm-clover-speaker/`](../device-fixes/nura/ucm-clover-speaker/).
+
+What is still genuinely unknown is whether `SPK_OUT` is physically wired to this tablet's
+speakers. The headphone outputs of the same codec are connected and work, so its analog
+outputs do reach the board — but that is not proof about `SPK_OUT` specifically. If the
+test is silent, the original assumption may yet be right, and the next step is the
+downstream Android `mixer_paths*.xml` and stock DTS rather than the kernel.
 
 ## Access notes
 

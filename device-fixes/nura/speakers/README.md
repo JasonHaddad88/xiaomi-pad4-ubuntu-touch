@@ -1,100 +1,132 @@
-# clover speakers on Nura — stereo TAS2557 on PRI_MI2S
+# clover speakers on Nura — WORKING: stereo TAS2557 on PRI_MI2S
 
-**The speakers are two TI TAS2557 smart amplifiers on I2C, fed over `PRI_MI2S`.** The mainline
-driver is already built (`CONFIG_SND_SOC_TAS2557=m`) and `tulip`/`jasmine` already use it on
-this SoC family. clover is missing only the **device-tree nodes** and a **UCM device**.
+**The speakers work.** They are two TI TAS2557 smart amplifiers on I2C, fed over `PRI_MI2S`.
+Confirmed audible on 22 October 2026.
 
-No kernel rebuild is needed — only a new DTB.
+Three things were missing, none of them kernel code:
+
+1. the device-tree nodes (the amps' I2C bus was `status = "disabled"`),
+2. the `PRIMARY_MI2S_RX` DAI declaration and a dai-link,
+3. the amps' DSP firmware, which is on the tablet's own vendor partition.
+
+`CONFIG_SND_SOC_TAS2557=m` is already set in the pmaports kernel config and
+`snd-soc-tas2557.ko` already ships in the rootfs, so **no kernel rebuild is needed** — only a
+new DTB, one firmware file and a UCM device.
 
 | | |
 |---|---|
 | left amp | I2C `0x4C`, reset `tlmm 80`, IRQ `tlmm 28`, `ti,channel = <0>` |
 | right amp | I2C `0x4E`, reset `tlmm 48`, IRQ `tlmm 55`, `ti,channel = <1>` |
-| bus | `&blsp_i2c6` (`i2c@c1b6000`) — present in clover's DTS but `status = "disabled"` |
+| bus | `&blsp_i2c6` (`i2c@c1b6000`), enabled by the patch |
 | backend | `PRI_MI2S_RX Audio Mixer MultiMedia1` |
-| driver | `snd-soc-tas2557.ko`, already built; widgets `ASI1`/`ASI2`, control `Speaker Playback Volume` |
+| firmware | `tas2557s_uCDSP.bin` from the vendor partition |
 
-## Files
+## Steps
 
-- [`0001-clover-add-tas2557-speakers.patch`](0001-clover-add-tas2557-speakers.patch) — against
-  `arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi` in
-  `github.com/sdm660-mainline/linux` at `v7.0.14-sdm660`. Verified to apply cleanly.
-  It enables `&blsp_i2c6`, adds both amps, adds the `pri-mi2s-dai-link`, the two
-  `audio-routing` entries and the `pri_mi2s_active` pin state.
-- [`clover-ucm-speaker.conf.add`](clover-ucm-speaker.conf.add) — the UCM `Speaker` device.
-- [`speaker-test.sh`](speaker-test.sh) — on-device test method (see *Method* below).
-- [`stock-android-reference/`](stock-android-reference/) — the tablet's own
-  `mixer_paths.xml` and `audio_platform_info.xml`.
+### 1. Device tree
 
-## How this was established
+[`0001-clover-add-tas2557-speakers.patch`](0001-clover-add-tas2557-speakers.patch) — against
+`arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi` in
+`github.com/sdm660-mainline/linux` at `v7.0.14-sdm660`. Verified to apply cleanly.
 
-Ubuntu Touch's speakers work, so UT is the ground truth. Playing a tone on UT and capturing
-**every DAPM widget that powered on** named the hardware outright:
+It enables `&blsp_i2c6`, adds both amps, declares `dai@16` (`PRIMARY_MI2S_RX`) in
+`&q6afedai`, adds the `pri-mi2s-dai-link` with both codecs, the two `audio-routing` entries
+and the `pri_mi2s_active` pin state.
 
-```
-codec:tas2557s.6-004c :: Stereo DAC     : On
-codec:tas2557s.6-004c :: Stereo ClassD  : On
-codec:tas2557s.6-004c :: Stereo OUT     : On
-codec:tas2557s.6-004c :: Stereo ASI1    : On
-platform:...msm-pcm-routing :: PRI_MI2S_RX Audio Mixer : On
-WSA Spk Switch                          : 0
+### 2. Firmware — must be taken off this tablet
+
+The blob is proprietary and is **not** committed here. It is already on the device, on the
+vendor partition, which both Ubuntu Touch and Nura leave untouched:
+
+```sh
+# on Nura, where msm-firmware-loader exposes the vendor partition
+sudo cp /run/msm-firmware-loader/mnt/vendor/firmware/tas2557s_uCDSP.bin /lib/firmware/
 ```
 
-`tas2557s.6-004c` = a TAS2557 on I2C bus 6, address 0x4c. The addresses and GPIOs then came
-from the downstream device tree on the device itself, `/proc/device-tree/soc/i2c@c1b6000/tas2557s@4c`:
+`tas2557s_uCDSP.bin` is 39615 bytes, md5 `21a800398c167168579395d9662cf4f3` on this unit.
+
+**Note the `s`.** clover ships the *stereo* firmware, `tas2557s_uCDSP.bin`, while the driver
+defaults to `tas2557_uCDSP.bin`. Rather than renaming the vendor file, the patch sets
+`firmware-name = "tas2557s_uCDSP.bin"` on both nodes. The driver supports this firmware
+properly — it validates the device type with
+`unsupported device %u in firmware (expected 2=mono or 3=stereo)` — so the stereo blob is
+the correct input, not a workaround.
+
+On success both chips report:
 
 ```
-ti,left-channel  = 0x4c      ti,right-channel = 0x4e
-ti,reset-gpio-left  = <&tlmm 80>     ti,irq-gpio-left  = <&tlmm 28>
-ti,reset-gpio-right = <&tlmm 48>     ti,irq-gpio-right = <&tlmm 55>
+tas2557 1-004c: PG2.1 left ready:  fw 'tas2557s_uCDSP.bin' ver=0x1010000 drv=0x400 (3 prog, 6 cfg)
+tas2557 1-004e: PG2.1 right ready: fw 'tas2557s_uCDSP.bin' ver=0x1010000 drv=0x400 (3 prog, 6 cfg)
 ```
 
-### Method worth reusing
+Without it, the amps probe and register controls but refuse to produce audio:
+`firmware 'tas2557_uCDSP.bin' not found, the amplifier cannot work without it`.
 
-- **Capture every widget that powers on, rather than checking widgets you guessed.** The
-  active chain names its own hardware. `/sys/kernel/debug/asoc/<card>/<component>/dapm/<widget>`,
-  first line, during playback.
-- **Measure on a configuration that works.** UT's speakers work; Nura's do not. Everything
-  here came from the working one.
+### 3. UCM
 
-## Open points in the patch
+[`clover-ucm-speaker.conf.add`](clover-ucm-speaker.conf.add) — adds the `Speaker` device,
+the volume defaults, and `Speaker` to the `Headphones` conflicts.
 
-Both are low-risk but unverified, and marked in the patch:
+## Verified on device
 
-1. **Supplies.** `vbat-supply = <&vph_pwr>` is certain. tulip also wires `iovdd`/`avdd`/`dvdd`
-   to `vreg_l6b_1p8`, but **clover's `l6b` is 3.3 V** (`vreg_l6b_3p3`), so tulip's label must
-   not be copied. The downstream clover DT declares no supplies for this amp at all, implying
-   the rails are board-fixed, and ASoC falls back to a dummy regulator for a missing supply.
-   They are therefore omitted rather than guessed. If the amps fail to probe, the 1.8 V
-   candidates on clover are `vreg_l8a_1p8`, `vreg_l9a_1p8`, `vreg_l10a_1p8`, `vreg_l13a_1p8`.
-2. **Stereo is new ground.** tulip and jasmine each use a *single* TAS2557. clover is the
-   first stereo pair in pmaports, so the `sound-name-prefix` approach ("Left Spk"/"Right Spk")
-   and the two-codec `pri-mi2s-dai-link` are the parts most likely to need adjustment. The
-   driver does support it in principle — it validates `ti,channel must be 0 or 1` and logs
-   `TAS2557 probed (I2C addr 0x%02x, %s channel)`.
+With a tone playing, every stage of both amps powers up:
 
-**None of this is tested yet.** The next step is building the kernel package with the patch,
-repacking `boot.img`, and `fastboot boot`-ing it.
+| widget | left (`1-004c`) | right (`1-004e`) |
+|---|---|---|
+| `ASI1` / `ASI2` | On | On |
+| `DAC` | On | On |
+| `ClassD` | On | On |
+| `OUT` | On | On |
+| `bias_level` | On | On |
+
+plus `PRI_MI2S_RX` and `PRI_MI2S_RX Audio Mixer` On. **And it is audible.**
+
+The `iovdd`/`avdd`/`dvdd` supplies fall back to dummy regulators and the amps work regardless,
+so the rails are board-fixed. tulip's labels must *not* be copied for these — clover's `l6b`
+is 3.3 V (`vreg_l6b_3p3`) where tulip's is 1.8 V. `vbat-supply = <&vph_pwr>` resolves fine.
+
+## Testing without a kernel build
+
+The driver was already present, so only the DTB needed changing. Rather than build the kernel
+package, the compiled DTB was patched directly and spliced into the boot image:
+
+1. `dtc -I dtb -O dts` the shipped `sda660-xiaomi-clover.dtb`, add the nodes in resolved form
+   (phandles by value — `tlmm` is `0x29`, `vph_pwr` `0x1e`, `q6afedai` `0x97`,
+   `q6routing` `0x98`; new nodes took `0xb0`–`0xb2`, above the highest in use, `0xa2`),
+   recompile.
+2. In this boot image the DTB is **appended to the gzipped kernel** inside the kernel region
+   (header v0). Replace that tail, fix `kernel_size` in the header, recompute the `id` SHA1,
+   re-pad the ramdisk to a page boundary.
+3. `fastboot boot` the result — RAM only, nothing written.
+
+## Pitfalls hit along the way
+
+- **`reboot bootloader` works on Ubuntu Touch but not on Nura.** UT's downstream kernel
+  honours the reboot reason; Nura's mainline kernel does not, so systemd starts shutting
+  down (taking Wi-Fi with it), the reboot call then fails, and the device is left
+  half-stopped and unreachable. Use `fastboot` from a powered-off state instead.
+- **`dtc | head` silently produces no output file.** SIGPIPE kills dtc before it writes.
+  Redirect its warnings to a file instead of piping.
+- **The patch initially missed `dai@16`.** `&q6afedai` declared only `dai@81` and `dai@88`;
+  a dai-link cannot bind to an undeclared DAI.
 
 ## Three retracted conclusions
 
-This took three wrong answers before the right one, and the pattern is the lesson:
+The answer took three wrong turns, and the pattern is the lesson:
 
 1. **"Speakers are not implemented in mainline."** Five arguments, four false.
-2. **"It is a configuration problem — the internal codec's `SPK DAC` just needs enabling."**
-   Measured wrong: `Digital RX3 Mute Switch` had been set to `1`, and that control is named
-   *Mute*. Driving the internal codec correctly afterwards powered
-   `SPK DAC → SPK PA → SPK_OUT` fully — and produced silence, because that output is not
-   wired to these speakers.
-3. **"The speakers are WSA881x amps on SoundWire."** Taken from
-   `SND_DEVICE_OUT_SPEAKER_WSA` in the vendor config — a path for a *different variant* of
-   the hardware. clover's actual device is the TAS2557.
+2. **"It is a configuration problem — the internal codec's `SPK DAC` needs enabling."**
+   Driving it correctly powered `SPK DAC → SPK PA → SPK_OUT` fully and produced silence:
+   that output is not wired to these speakers.
+3. **"WSA881x amps on SoundWire."** Taken from `SND_DEVICE_OUT_SPEAKER_WSA` in the vendor
+   config — a path for a *different variant* of the hardware.
 
-Each wrong answer came from reading a *plausible* artefact instead of observing the working
-system: a config file's wrong path, a control whose polarity was assumed, a bus that was
-disabled in the device tree (which is also why "there is no amplifier on I2C" was wrong —
-`&blsp_i2c6` is off, so nothing could enumerate).
+Each came from reading a plausible artefact instead of observing the system that worked.
+"There is no amplifier on I2C" was wrong for the same reason: `&blsp_i2c6` was disabled, so
+nothing could enumerate on it.
 
-Also worth noting: `tulip`/`jasmine`'s UCM, labelled *"Built-in Speaker (TAS2557 smart
-amplifier)"*, was the right answer the whole time and was explicitly dismissed here on the
-grounds that "clover has no TAS2557".
+**What finally worked:** Ubuntu Touch's speakers work, so a tone was played *there* and every
+DAPM widget that powered on was captured. The active chain named its own hardware
+(`codec:tas2557s.6-004c :: Stereo ClassD: On`) in one step. And `tulip`/`jasmine`'s UCM,
+labelled *"Built-in Speaker (TAS2557 smart amplifier)"*, had been the right answer all along
+— dismissed early on the grounds that "clover has no TAS2557".

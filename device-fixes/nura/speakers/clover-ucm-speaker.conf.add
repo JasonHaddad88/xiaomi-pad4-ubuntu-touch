@@ -1,25 +1,24 @@
 # UCM changes for clover's stereo TAS2557 speakers.
+# These are the exact edits that were applied and tested on the device.
 #
-# Modelled on Xiaomi/tulip, which drives a TAS2557 on PRI_MI2S and works.
-# The one difference: clover has TWO amps, so the device tree gives them
-# sound-name-prefix "Left Spk" / "Right Spk" to avoid colliding control names.
-# Every TAS2557 control therefore gains that prefix here, where tulip's is bare.
-#
-# Apply to the clover UCM, which is reached from two entry points that both
-# point at the same HiFi.conf:
-#   /usr/share/alsa/ucm2/Xiaomi/clover/clover.conf
-#   /usr/share/alsa/ucm2/conf.d/sdm660-internal/Xiaomi Mi Pad 4.conf
 # Upstream: https://github.com/sdm660-mainline/alsa-ucm-conf
+# Note that /usr/share/alsa/ucm2/conf.d/sdm660-internal/Xiaomi Mi Pad 4.conf and
+# /usr/share/alsa/ucm2/Xiaomi/clover/clover.conf carry the same content and both
+# point at the same HiFi.conf.
 
 
-# ---- 1. append to BOTH clover.conf and "Xiaomi Mi Pad 4.conf", inside BootSequence ----
-#
-#     # Speaker (TAS2557) - 0..15 maps to -28..+2 dB; 14 = 0 dB
-#     cset "name='Left Spk Speaker Playback Volume' 14"
-#     cset "name='Right Spk Speaker Playback Volume' 14"
+# ---- 1. append inside BootSequence, in clover.conf and "Xiaomi Mi Pad 4.conf" ----
+
+	# Speakers (stereo TAS2557) - 0..15 maps to -28..+2 dB; 14 = 0 dB
+	cset "name='Left Spk Speaker Playback Volume' 14"
+	cset "name='Right Spk Speaker Playback Volume' 14"
 
 
 # ---- 2. append to /usr/share/alsa/ucm2/Xiaomi/clover/HiFi.conf ----
+#
+# "Left Spk" / "Right Spk" are the sound-name-prefix values the device tree
+# gives the two amps; without them two instances of one codec would register
+# colliding control names.
 
 SectionDevice."Speaker" {
 	Comment "Built-in Speakers (stereo TAS2557 smart amplifiers)"
@@ -43,15 +42,12 @@ SectionDevice."Speaker" {
 }
 
 
-# ---- 3. the existing Headphones device needs Speaker added to its conflicts ----
+# ---- 3. add to the existing Headphones device in HiFi.conf ----
 #
-# clover's Headphones section currently has no ConflictingDevices block at all,
-# because it was the only playback device. Add:
-#
-#     ConflictingDevices [
-#         "Speaker"
-#     ]
-#
-# Without this both can be selected at once. It is also why the volume OSD
-# showed "Headphones (3.5 mm jack)" with nothing plugged in: Headphones was
-# the only playback device in existence, so it was always the chosen one.
+# It had no ConflictingDevices block at all, because it was the only playback
+# device that existed. That is also why the volume OSD read
+# "Headphones (3.5 mm jack)" with nothing plugged in.
+
+	ConflictingDevices [
+		"Speaker"
+	]

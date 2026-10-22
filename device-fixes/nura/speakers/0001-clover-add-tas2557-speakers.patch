@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
-@@ -185,6 +185,54 @@
+@@ -185,6 +185,56 @@
  	};
  };
  
@@ -28,6 +28,7 @@
 +		reg = <0x4c>;
 +		#sound-dai-cells = <0>;
 +		sound-name-prefix = "Left Spk";
++		firmware-name = "tas2557s_uCDSP.bin";
 +
 +		reset-gpios = <&tlmm 80 GPIO_ACTIVE_LOW>;
 +		interrupts-extended = <&tlmm 28 IRQ_TYPE_LEVEL_HIGH>;
@@ -42,6 +43,7 @@
 +		reg = <0x4e>;
 +		#sound-dai-cells = <0>;
 +		sound-name-prefix = "Right Spk";
++		firmware-name = "tas2557s_uCDSP.bin";
 +
 +		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
 +		interrupts-extended = <&tlmm 55 IRQ_TYPE_LEVEL_HIGH>;
@@ -55,7 +57,7 @@
  &mdss {
  	status = "okay";
  };
-@@ -194,6 +242,12 @@
+@@ -194,6 +244,12 @@
  };
  
  &q6afedai {
@@ -68,7 +70,7 @@
  	dai@81 {
  		reg = <INT0_MI2S_RX>;
  		qcom,sd-lines = <0 1>;
-@@ -651,7 +705,8 @@
+@@ -651,7 +707,8 @@
  	compatible = "qcom,sdm660-internal-sndcard";
  	model = "Xiaomi Mi Pad 4";
  	pinctrl-0 = <&cdc_pdm_default>,
@@ -78,7 +80,7 @@
  	pinctrl-names = "default";
  	audio-routing = "RX_BIAS", "Digital MCLK",
  			"INT_LDO_H", "Digital MCLK",
-@@ -665,7 +720,9 @@
+@@ -665,7 +722,9 @@
  			"PDM_RX3", "Digital PDM_RX3",
  			"Digital LPASS_PDM_TX", "PDM_TX",
  			"AMIC1", "MIC BIAS External1",
@@ -89,7 +91,7 @@
  	mm1-dai-link {
  		link-name = "MultiMedia1";
  		cpu {
-@@ -692,6 +749,19 @@
+@@ -692,6 +751,19 @@
  		};
  	};
  
@@ -109,7 +111,7 @@
  	int3-mi2s-dai-link {
  		link-name = "Internal MI2S Capture";
  		cpu {
-@@ -730,6 +800,29 @@
+@@ -730,6 +802,29 @@
  		drive-strength = <6>;
  		bias-pull-up;
  	};

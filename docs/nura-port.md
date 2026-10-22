@@ -18,7 +18,7 @@ sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 | Android container / libhybris | **none** | required |
 | display, touch, 3D | works (but see the black-screen bug) | works |
 | **Wi-Fi** | **works, WEP included — fixed here, see below** | works |
-| **speakers** | **no — TAS2557 amps absent from the device tree; patch written, untested** | works, loud |
+| **speakers** | **works — fixed here, see below** | works, loud |
 | headphones | works | works |
 | camera | no | **works** |
 | Bluetooth | reported working | masked (crash-looped) |
@@ -200,26 +200,42 @@ browsing. `pkgrel=99` keeps `apk` from replacing the package on upgrade.
 WEP is broken encryption and this does not change that; the package exists because it is the
 only network at the device's location.
 
-## Not fixed — speakers: stereo TAS2557 missing from the device tree
+## Fix 5 — speakers: stereo TAS2557, missing from the device tree
 
-Headphones work; **speakers produce nothing**, and the cause is now pinned down precisely.
-Patch, UCM and workings: [`device-fixes/nura/speakers/`](../device-fixes/nura/speakers/).
+**The speakers work.** They are two TI TAS2557 smart amplifiers on I2C, fed over `PRI_MI2S`.
+Patch, firmware instructions, UCM and full workings:
+[`device-fixes/nura/speakers/`](../device-fixes/nura/speakers/).
 
-**The speakers are two TI TAS2557 smart amplifiers on I2C, fed over `PRI_MI2S`.** The driver
-is already built (`CONFIG_SND_SOC_TAS2557=m`) and `tulip`/`jasmine` already use it on this
-SoC family, so **no kernel rebuild is needed** — only a new DTB and a UCM device.
+`CONFIG_SND_SOC_TAS2557=m` is already set and `snd-soc-tas2557.ko` already ships in the
+rootfs, so **no kernel rebuild was needed**. Three things were missing:
 
 | | |
 |---|---|
-| left amp | I2C `0x4C`, reset `tlmm 80`, IRQ `tlmm 28`, `ti,channel = <0>` |
-| right amp | I2C `0x4E`, reset `tlmm 48`, IRQ `tlmm 55`, `ti,channel = <1>` |
-| bus | `&blsp_i2c6` — present in clover's DTS but `status = "disabled"` |
-| backend | `PRI_MI2S_RX Audio Mixer MultiMedia1` |
+| device-tree nodes | the amps' bus `&blsp_i2c6` was `status = "disabled"` |
+| `PRIMARY_MI2S_RX` DAI + dai-link | `&q6afedai` declared only `dai@81` and `dai@88` |
+| DSP firmware | `tas2557s_uCDSP.bin`, on the tablet's own vendor partition |
+
+```
+left  amp: I2C 0x4C, reset tlmm 80, IRQ tlmm 28, ti,channel = <0>
+right amp: I2C 0x4E, reset tlmm 48, IRQ tlmm 55, ti,channel = <1>
+```
+
+Note the **`s`**: clover ships the *stereo* firmware `tas2557s_uCDSP.bin` while the driver
+defaults to `tas2557_uCDSP.bin`, so the patch sets `firmware-name` rather than renaming the
+vendor blob. The driver supports it properly — it checks
+`expected 2=mono or 3=stereo`. With it, both chips report `PG2.1 left/right ready`; without
+it they register controls but refuse to produce audio.
+
+The blob is proprietary and is **not** committed. It is taken off the device:
+
+```sh
+sudo cp /run/msm-firmware-loader/mnt/vendor/firmware/tas2557s_uCDSP.bin /lib/firmware/
+```
 
 ### How it was found
 
-Ubuntu Touch's speakers work, so UT is the ground truth. Playing a tone there and capturing
-**every DAPM widget that powered on** named the hardware outright:
+Ubuntu Touch's speakers work, so UT was the ground truth. Playing a tone there and capturing
+**every DAPM widget that powered on** named the hardware in one step:
 
 ```
 codec:tas2557s.6-004c :: Stereo DAC / Stereo ClassD / Stereo OUT / Stereo ASI1 : On
@@ -227,30 +243,27 @@ platform:...msm-pcm-routing :: PRI_MI2S_RX Audio Mixer : On
 WSA Spk Switch : 0
 ```
 
-The addresses and GPIOs then came from the downstream device tree on the device itself,
+Addresses and GPIOs then came from the downstream device tree on the device itself,
 `/proc/device-tree/soc/i2c@c1b6000/tas2557s@4c`.
 
-Two habits did the work, and are worth keeping: **capture every widget that powers on**
-instead of checking ones you guessed, and **measure on a configuration that works** —
-everything here came from UT, not from Nura.
+### Testing without a kernel build
 
-### Status
+Since only the DTB needed changing, the shipped `sda660-xiaomi-clover.dtb` was decompiled,
+edited in resolved form, recompiled, and spliced back into the boot image — where the DTB is
+appended to the gzipped kernel inside the kernel region (header v0) — then `fastboot boot`ed.
+RAM only, nothing written. Details in the directory above.
 
-The DTS patch is written and verified to apply; the UCM device is written. **Neither is
-tested** — next step is building the kernel package, repacking `boot.img` and
-`fastboot boot`-ing it. Two points in the patch are unverified and flagged there: the 1.8 V
-supply labels (tulip's cannot be copied — clover's `l6b` is 3.3 V) and the stereo pairing,
-since tulip and jasmine each use only a single TAS2557.
+### Two traps
 
-### Why the volume OSD says "Headphones (3.5 mm jack)" with nothing plugged in
-
-Not a jack bug — the kernel reports `Headset Jack` as `off` correctly. clover's UCM defines
-only `Headphones` and `Headset Mic`, so headphones are the only playback device that exists
-and are therefore always selected. Adding the `Speaker` device fixes this too.
+- **`reboot bootloader` works on Ubuntu Touch but not on Nura.** UT's downstream kernel
+  honours the reboot reason; Nura's mainline kernel does not, so systemd starts shutting down,
+  takes Wi-Fi with it, the reboot call fails, and the tablet is left half-stopped and
+  unreachable until a manual power cycle.
+- **`dtc ... | head` writes no output file** — SIGPIPE kills dtc first.
 
 ### Three retracted conclusions
 
-This section held three wrong answers before this one, and the pattern is the lesson:
+This took three wrong answers first, and the pattern is the lesson:
 
 1. **"Not implemented in mainline at all."** Five arguments, four false — `audio-routing`
    was said to list headphone paths and no speaker, when it lists *no* headphone paths yet
@@ -263,11 +276,18 @@ This section held three wrong answers before this one, and the pattern is the le
 3. **"WSA881x amps on SoundWire."** Taken from `SND_DEVICE_OUT_SPEAKER_WSA` in the vendor
    config — a path for a *different variant* of the hardware.
 
-Each wrong answer came from reading a plausible artefact instead of observing the working
-system. The claim "there is no amplifier on I2C" was wrong for the same reason: `&blsp_i2c6`
-is disabled in the device tree, so nothing could enumerate on it. And `tulip`/`jasmine`'s
-UCM, labelled *"Built-in Speaker (TAS2557 smart amplifier)"*, was the right answer all along
-— dismissed here on the grounds that "clover has no TAS2557".
+Each came from reading a plausible artefact instead of observing the system that worked.
+"There is no amplifier on I2C" was wrong the same way: `&blsp_i2c6` was disabled, so nothing
+could enumerate. And `tulip`/`jasmine`'s UCM, *"Built-in Speaker (TAS2557 smart amplifier)"*,
+was the right answer throughout — dismissed early because "clover has no TAS2557".
+
+### Still open
+
+The volume OSD previously read "Headphones (3.5 mm jack)" with nothing plugged in. That was
+never a jack bug — the kernel reports `Headset Jack` as `off` correctly; headphones were
+simply the only playback device clover's UCM defined. The new `Speaker` device, and
+`Speaker` added to the `Headphones` conflicts, should resolve it; **the UCM path has not yet
+been exercised through normal playback**, only the direct ALSA path.
 
 ## Access notes
 

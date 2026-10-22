@@ -186,18 +186,31 @@ UDISKS_IGNORE=1
 govern udisks' own automount policy; something on Ubuntu Touch asks udisks to mount the card
 explicitly, so the policy never applies.
 
-**What is actually being used now: `noauto` entries in `/etc/fstab`.** udisks2 does honour
-fstab, and `/etc` persists on Ubuntu Touch despite the read-only loop rootfs:
+**`noauto` in `/etc/fstab` does not work either** — Ubuntu Touch **regenerates `/etc/fstab`
+on every boot**, so the entries simply vanish. Confirmed: entries added, reboot, `grep -c`
+returned 0 and the card was mounted rw again. (The udev rule *does* persist, because
+`/etc/udev/rules.d` is not regenerated — which is what made the fstab result surprising.)
 
+**What is in place now: constrain the mount instead of preventing it.** udisks2's
+`/etc/udisks2/mount_options.conf` sets per-device mount options, and `/etc/udisks2` persists:
+
+```ini
+[/dev/disk/by-uuid/f08d5deb-0d48-431d-8b20-f12f896c5c9a]
+ext4_defaults=ro,noload
+ext4_allow=ro,noload,errors,nosuid,nodev,relatime
 ```
-UUID=ecff7085-c21a-4ff0-afff-122faf711732  /mnt/nura-boot  ext2  noauto,ro         0 0
-UUID=f08d5deb-0d48-431d-8b20-f12f896c5c9a  /mnt/nura-root  ext4  noauto,ro,noload  0 0
-```
 
-`ro,noload` on the root partition means even a deliberate mount cannot replay the journal.
+`ro,noload` becomes the default, and the allow list contains **no `rw`**, so a read-write
+request is refused outright rather than silently granted. `noload` is the part that actually
+suppresses the journal replay; plain `ro` does not. Full file:
+[`device-fixes/nura/udisks2-mount_options.conf`](../device-fixes/nura/udisks2-mount_options.conf).
 
-**This is applied but NOT yet verified across a reboot.** Do not treat it as closed until it
-is — this section has now claimed success twice and been wrong twice.
+**NOT yet verified across a reboot.** This section has now claimed success twice and been
+wrong twice, and two further approaches (`UDISKS_AUTO`, fstab `noauto`) failed their first
+real test. Treat it as open until the check below passes on a fresh boot.
+
+**The one guaranteed mitigation, independent of all of this: take the SD card out when not
+running Nura.**
 
 ### Why 4.4 mounts it read-write at all
 

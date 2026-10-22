@@ -253,6 +253,29 @@ edited in resolved form, recompiled, and spliced back into the boot image — wh
 appended to the gzipped kernel inside the kernel region (header v0) — then `fastboot boot`ed.
 RAM only, nothing written. Details in the directory above.
 
+### It hung the tablet first: an interrupt storm on gpio28
+
+The first working version of the patch played audio **and hung the machine** — UI frozen,
+display would not blank, input dead, ssh answering then starving out.
+
+`gpio28` is claimed by clover's own `sound` node: `cdc-dmic-default-state` muxes it to
+`dmic2_clk`, and the sound node lists that state in `pinctrl-0`. The patch had put the left
+amplifier's interrupt on the same pin as `IRQ_TYPE_LEVEL_HIGH`. **A level-triggered interrupt
+on a pin being driven as a clock never deasserts.**
+
+Neither amp interrupt is claimed now. They only report faults; audio works without them. The
+downstream tree does say `ti,irq-gpio-left = <&tlmm 28>`, so either that is right and clover's
+mainline DMIC pinctrl is wrong, or the property means something else — unresolved.
+
+**The checking mistake:** the GPIOs were validated against clover's *source* `.dtsi`, where
+`grep "gpio28"` finds nothing. The conflicting pin states are inherited from the SoC-level
+include and appear only in the **resolved** tree. Validate pin claims against the compiled
+DTB, which is what the kernel is actually handed:
+
+```sh
+dtc -I dtb -O dts sda660-xiaomi-clover.dtb | grep -oE 'pins = "gpio[0-9]+"' | sort -u
+```
+
 ### Two traps
 
 - **`reboot bootloader` works on Ubuntu Touch but not on Nura.** UT's downstream kernel

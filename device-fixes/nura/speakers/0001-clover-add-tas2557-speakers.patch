@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
-@@ -185,6 +185,56 @@
+@@ -185,6 +185,64 @@
  	};
  };
  
@@ -19,6 +19,16 @@
 +	 *   ti,reset-gpio-left  = <&tlmm 80>   ti,irq-gpio-left  = <&tlmm 28>
 +	 *   ti,reset-gpio-right = <&tlmm 48>   ti,irq-gpio-right = <&tlmm 55>
 +	 *
++	 * The interrupt lines are deliberately NOT wired up. gpio28 is claimed by
++	 * this board's own sound node: cdc-dmic-default-state muxes it to
++	 * dmic2_clk, and clover's `sound` node lists that state in pinctrl-0. A
++	 * level-triggered IRQ on a pin being driven as a DMIC clock never
++	 * deasserts, which hangs the machine - observed as a frozen UI, a display
++	 * that will not blank, and ssh starving out. The amplifiers do not need
++	 * the IRQ to play audio; it only reports faults. Whether gpio28 really is
++	 * the amp IRQ on this board, or whether clover's mainline DMIC pinctrl is
++	 * mistaken, is unresolved - so neither IRQ is claimed.
++	 *
 +	 * sound-name-prefix is required because two instances of the same
 +	 * codec would otherwise register colliding control and widget names
 +	 * ("Speaker Playback Volume", "ASI1", "ASI2").
@@ -31,7 +41,6 @@
 +		firmware-name = "tas2557s_uCDSP.bin";
 +
 +		reset-gpios = <&tlmm 80 GPIO_ACTIVE_LOW>;
-+		interrupts-extended = <&tlmm 28 IRQ_TYPE_LEVEL_HIGH>;
 +
 +		vbat-supply = <&vph_pwr>;
 +
@@ -46,7 +55,6 @@
 +		firmware-name = "tas2557s_uCDSP.bin";
 +
 +		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
-+		interrupts-extended = <&tlmm 55 IRQ_TYPE_LEVEL_HIGH>;
 +
 +		vbat-supply = <&vph_pwr>;
 +
@@ -57,7 +65,7 @@
  &mdss {
  	status = "okay";
  };
-@@ -194,6 +244,12 @@
+@@ -194,6 +252,12 @@
  };
  
  &q6afedai {
@@ -70,7 +78,7 @@
  	dai@81 {
  		reg = <INT0_MI2S_RX>;
  		qcom,sd-lines = <0 1>;
-@@ -651,7 +707,8 @@
+@@ -651,7 +715,8 @@
  	compatible = "qcom,sdm660-internal-sndcard";
  	model = "Xiaomi Mi Pad 4";
  	pinctrl-0 = <&cdc_pdm_default>,
@@ -80,7 +88,7 @@
  	pinctrl-names = "default";
  	audio-routing = "RX_BIAS", "Digital MCLK",
  			"INT_LDO_H", "Digital MCLK",
-@@ -665,7 +722,9 @@
+@@ -665,7 +730,9 @@
  			"PDM_RX3", "Digital PDM_RX3",
  			"Digital LPASS_PDM_TX", "PDM_TX",
  			"AMIC1", "MIC BIAS External1",
@@ -91,7 +99,7 @@
  	mm1-dai-link {
  		link-name = "MultiMedia1";
  		cpu {
-@@ -692,6 +751,19 @@
+@@ -692,6 +759,19 @@
  		};
  	};
  
@@ -111,7 +119,7 @@
  	int3-mi2s-dai-link {
  		link-name = "Internal MI2S Capture";
  		cpu {
-@@ -730,6 +802,29 @@
+@@ -730,6 +810,29 @@
  		drive-strength = <6>;
  		bias-pull-up;
  	};

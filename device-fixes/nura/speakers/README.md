@@ -130,3 +130,47 @@ DAPM widget that powered on was captured. The active chain named its own hardwar
 (`codec:tas2557s.6-004c :: Stereo ClassD: On`) in one step. And `tulip`/`jasmine`'s UCM,
 labelled *"Built-in Speaker (TAS2557 smart amplifier)"*, had been the right answer all along
 — dismissed early on the grounds that "clover has no TAS2557".
+
+## The interrupt-storm bug (and why the IRQs are not wired)
+
+The first working version of this patch **hung the tablet**: UI frozen, display would not
+blank, input dead, ssh answering and then starving out. The audio was fine; the machine was
+not.
+
+Cause: `gpio28`.
+
+```
+cdc-dmic-default-state {                 /* phandle 0x95 */
+    dmic2-clk-pins {
+        pins = "gpio28";
+        function = "dmic2_clk";
+    };
+};
+
+&sound { pinctrl-0 = <&cdc_pdm_default>, <&cdc_dmic_default>; };   /* claims 0x95 */
+```
+
+clover's own `sound` node claims that pin and muxes it to the DMIC2 clock. The patch had put
+the left amplifier's interrupt on the same pin as `IRQ_TYPE_LEVEL_HIGH`. **A level-triggered
+interrupt on a pin being driven as a clock never deasserts** — an interrupt storm, and the
+machine drowns.
+
+The downstream device tree really does say `ti,irq-gpio-left = <&tlmm 28>`, so either the amp
+IRQ genuinely is gpio28 and clover's mainline DMIC pinctrl is mistaken, or the downstream
+property means something else. **That is unresolved**, so neither interrupt is claimed now.
+The amplifiers do not need them — they only report faults, and audio works without them.
+
+### The checking mistake worth remembering
+
+The GPIOs were validated against clover's **source** `.dtsi` files, where a grep for
+`&tlmm 28` and `"gpio28"` found nothing. But the pin states that actually conflict are
+inherited from the SoC-level include and only appear in the **fully resolved** tree. Checking
+the compiled DTB — `dtc -I dtb -O dts` on the shipped `.dtb`, which is what the kernel is
+really handed — shows them immediately:
+
+```sh
+dtc -I dtb -O dts sda660-xiaomi-clover.dtb | grep -oE 'pins = "gpio[0-9]+"' | sort -u
+```
+
+That lists gpio14, gpio28 and others the source files never mention. **Validate pin claims
+against the resolved tree, not the board's own source file.**

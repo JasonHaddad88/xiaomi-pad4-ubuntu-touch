@@ -174,3 +174,38 @@ dtc -I dtb -O dts sda660-xiaomi-clover.dtb | grep -oE 'pins = "gpio[0-9]+"' | so
 
 That lists gpio14, gpio28 and others the source files never mention. **Validate pin claims
 against the resolved tree, not the board's own source file.**
+
+## The prebuilt image (local, not in git)
+
+`backups/` is gitignored — partition images are device-specific and stay local. The built
+artifacts live at `backups/nura-images-2026-10-15/`:
+
+| file | md5 | |
+|---|---|---|
+| `boot-tas2557-speakers.img` | `8ef66f043dec0c9183cc168718e34f9c` | speakers working |
+| `sda660-xiaomi-clover-tas2557.dtb` | `63588329469b5e14955611be210e100a` | the patched DTB |
+| `boot.img` | `7c485662ade03d97da689767f1336261` | original, speakers silent |
+| `sda660-xiaomi-clover.dtb` | `70bebc54425a50cc577b22aac000cdbd` | original DTB |
+
+```sh
+fastboot boot backups/nura-images-2026-10-15/boot-tas2557-speakers.img
+```
+
+RAM only; nothing is written and Ubuntu Touch is untouched. Keep the unpatched `boot.img` —
+booting it is how you isolate whether a problem comes from the speaker patch.
+
+The amp firmware and the UCM device live on the SD-card rootfs and persist across reboots;
+only the DTB is carried in the boot image, so a plain `fastboot boot boot.img` has silent
+speakers even with the firmware installed.
+
+### Clean-boot verification of this image
+
+```
+firmware-name (live DT) : tas2557s_uCDSP.bin   both amps
+tas2557 1-004c: PG2.1 left ready     at boot, no rebind
+tas2557 1-004e: PG2.1 right ready
+/lib/firmware: only tas2557s_uCDSP.bin present
+tas2557 IRQ lines registered: 0      the gpio28 conflict is gone
+load average: 0.03                   no interrupt storm
+UCM: 3: Speaker - Built-in Speakers (stereo TAS2557 smart amplifiers)
+```

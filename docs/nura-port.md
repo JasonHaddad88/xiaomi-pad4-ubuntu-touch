@@ -174,9 +174,44 @@ UDISKS_IGNORE=1
 /dev/mmcblk1p2 on /media/phablet/pmOS_root type ext4 (rw,...,uhelper=udisks2)
 ```
 
-`UDISKS_AUTO=0` is the property that actually disables auto-mounting. So for months the
-card was still being auto-mounted rw by a 4.4 kernel on every Ubuntu Touch boot while this
-document claimed the hazard was closed. Verify it, with the card inserted:
+**`UDISKS_AUTO=0` does not work either.** Both properties were set and confirmed applied —
+
+```
+$ udevadm info --query=property --name=/dev/mmcblk1p2 | grep UDISKS
+UDISKS_AUTO=0
+UDISKS_IGNORE=1
+```
+
+— and after a reboot the card was mounted read-write by udisks2 regardless. Those properties
+govern udisks' own automount policy; something on Ubuntu Touch asks udisks to mount the card
+explicitly, so the policy never applies.
+
+**What is actually being used now: `noauto` entries in `/etc/fstab`.** udisks2 does honour
+fstab, and `/etc` persists on Ubuntu Touch despite the read-only loop rootfs:
+
+```
+UUID=ecff7085-c21a-4ff0-afff-122faf711732  /mnt/nura-boot  ext2  noauto,ro         0 0
+UUID=f08d5deb-0d48-431d-8b20-f12f896c5c9a  /mnt/nura-root  ext4  noauto,ro,noload  0 0
+```
+
+`ro,noload` on the root partition means even a deliberate mount cannot replay the journal.
+
+**This is applied but NOT yet verified across a reboot.** Do not treat it as closed until it
+is — this section has now claimed success twice and been wrong twice.
+
+### Why 4.4 mounts it read-write at all
+
+The earlier text here said the 4.4 kernel "refuses a read-write mount" for these features.
+It does not. `dumpe2fs` shows `orphan_file`, which is a **COMPAT** feature — old kernels are
+free to mount read-write and simply ignore it. That is exactly how the orphan file ended up
+inconsistent. `metadata_csum` is RO_COMPAT and would restrict writes, but the mount observed
+was plain `rw`:
+
+```
+/dev/mmcblk1p2 on /media/phablet/pmOS_root type ext4 (rw,...,uhelper=udisks2)
+```
+
+Verify, with the card inserted:
 
 ```sh
 udevadm info --query=property --name=/dev/mmcblk1p2 | grep UDISKS   # both properties

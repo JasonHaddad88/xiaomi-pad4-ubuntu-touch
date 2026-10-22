@@ -1,0 +1,57 @@
+# UCM changes for clover's stereo TAS2557 speakers.
+#
+# Modelled on Xiaomi/tulip, which drives a TAS2557 on PRI_MI2S and works.
+# The one difference: clover has TWO amps, so the device tree gives them
+# sound-name-prefix "Left Spk" / "Right Spk" to avoid colliding control names.
+# Every TAS2557 control therefore gains that prefix here, where tulip's is bare.
+#
+# Apply to the clover UCM, which is reached from two entry points that both
+# point at the same HiFi.conf:
+#   /usr/share/alsa/ucm2/Xiaomi/clover/clover.conf
+#   /usr/share/alsa/ucm2/conf.d/sdm660-internal/Xiaomi Mi Pad 4.conf
+# Upstream: https://github.com/sdm660-mainline/alsa-ucm-conf
+
+
+# ---- 1. append to BOTH clover.conf and "Xiaomi Mi Pad 4.conf", inside BootSequence ----
+#
+#     # Speaker (TAS2557) - 0..15 maps to -28..+2 dB; 14 = 0 dB
+#     cset "name='Left Spk Speaker Playback Volume' 14"
+#     cset "name='Right Spk Speaker Playback Volume' 14"
+
+
+# ---- 2. append to /usr/share/alsa/ucm2/Xiaomi/clover/HiFi.conf ----
+
+SectionDevice."Speaker" {
+	Comment "Built-in Speakers (stereo TAS2557 smart amplifiers)"
+
+	EnableSequence [
+		cset "name='PRI_MI2S_RX Audio Mixer MultiMedia1' 1"
+	]
+
+	DisableSequence [
+		cset "name='PRI_MI2S_RX Audio Mixer MultiMedia1' 0"
+	]
+
+	ConflictingDevices [
+		"Headphones"
+	]
+
+	Value {
+		PlaybackPCM "hw:${CardId},0"
+		PlaybackPriority 300
+	}
+}
+
+
+# ---- 3. the existing Headphones device needs Speaker added to its conflicts ----
+#
+# clover's Headphones section currently has no ConflictingDevices block at all,
+# because it was the only playback device. Add:
+#
+#     ConflictingDevices [
+#         "Speaker"
+#     ]
+#
+# Without this both can be selected at once. It is also why the volume OSD
+# showed "Headphones (3.5 mm jack)" with nothing plugged in: Headphones was
+# the only playback device in existence, so it was always the chosen one.

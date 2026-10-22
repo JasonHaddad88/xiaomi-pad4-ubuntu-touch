@@ -1,122 +1,100 @@
-# clover speakers on Nura — the actual cause, measured
+# clover speakers on Nura — stereo TAS2557 on PRI_MI2S
 
-**Conclusion: the speakers are two WSA881x smart amplifiers fed over `PRI_MI2S`. The
-mainline clover device tree does not describe them, and the WSA881x driver is not even
-compiled into this kernel. They cannot work until that is fixed — no amount of mixer
-configuration will do it.**
+**The speakers are two TI TAS2557 smart amplifiers on I2C, fed over `PRI_MI2S`.** The mainline
+driver is already built (`CONFIG_SND_SOC_TAS2557=m`) and `tulip`/`jasmine` already use it on
+this SoC family. clover is missing only the **device-tree nodes** and a **UCM device**.
 
-This replaces two earlier wrong conclusions. The history matters, because both were stated
-confidently and both were wrong for instructive reasons.
+No kernel rebuild is needed — only a new DTB.
+
+| | |
+|---|---|
+| left amp | I2C `0x4C`, reset `tlmm 80`, IRQ `tlmm 28`, `ti,channel = <0>` |
+| right amp | I2C `0x4E`, reset `tlmm 48`, IRQ `tlmm 55`, `ti,channel = <1>` |
+| bus | `&blsp_i2c6` (`i2c@c1b6000`) — present in clover's DTS but `status = "disabled"` |
+| backend | `PRI_MI2S_RX Audio Mixer MultiMedia1` |
+| driver | `snd-soc-tas2557.ko`, already built; widgets `ASI1`/`ASI2`, control `Speaker Playback Volume` |
+
+## Files
+
+- [`0001-clover-add-tas2557-speakers.patch`](0001-clover-add-tas2557-speakers.patch) — against
+  `arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi` in
+  `github.com/sdm660-mainline/linux` at `v7.0.14-sdm660`. Verified to apply cleanly.
+  It enables `&blsp_i2c6`, adds both amps, adds the `pri-mi2s-dai-link`, the two
+  `audio-routing` entries and the `pri_mi2s_active` pin state.
+- [`clover-ucm-speaker.conf.add`](clover-ucm-speaker.conf.add) — the UCM `Speaker` device.
+- [`speaker-test.sh`](speaker-test.sh) — on-device test method (see *Method* below).
+- [`stock-android-reference/`](stock-android-reference/) — the tablet's own
+  `mixer_paths.xml` and `audio_platform_info.xml`.
 
 ## How this was established
 
-### 1. The internal codec's speaker output works perfectly — and is silent
+Ubuntu Touch's speakers work, so UT is the ground truth. Playing a tone on UT and capturing
+**every DAPM widget that powered on** named the hardware outright:
 
-`qcom,pm8916-wcd-analog-codec` has a complete speaker chain, and the driver drives all of
-it. Measured from DAPM debugfs with a 440 Hz tone playing, speaker path enabled and
-headphones switched off:
-
-| widget | idle | tone playing |
-|---|---|---|
-| `Digital RX3 MIX1` | Off | **On** |
-| `Digital RX3 INT` | Off | **On** |
-| `Digital PDM_RX3` | Off | **On** |
-| `PDM_RX3` | Off | **On** |
-| `SPK DAC` | Off | **On** |
-| `SPK PA` | Off | **On** — register `0xf1b2` mask `0x40` |
-| `SPK_OUT` | Off | **On** |
-| `SPKR_CLK` | Off | **On** |
-
-The headphone chain (`HPHL DAC`, `HPHL PA`, `HPH_L`) stayed `Off` throughout, then powered
-`On` when `HPHL`/`HPHR` were switched — so the measurement demonstrably distinguishes a live
-output from a dead one.
-
-**Result: complete silence.** The kernel powers up a speaker output, including a real
-hardware PA-enable bit, that is not physically connected to this tablet's speakers.
-
-### 2. What stock Android actually does
-
-From the tablet's own vendor partition, which `msm-firmware-loader` exposes at
-`/run/msm-firmware-loader/mnt/vendor` (`etc/mixer_paths.xml`, `etc/audio_platform_info.xml`):
-
-```xml
-<device name="SND_DEVICE_OUT_SPEAKER_WSA" interface="PRI_MI2S_RX"/>
-<param key="spkr_1_tz_name" value="wsatz.11"/>
-<param key="spkr_2_tz_name" value="wsatz.12"/>
-
-<path name="deep-buffer-playback speaker">
-    <ctl name="PRI_MI2S_RX Audio Mixer MultiMedia1" value="1" />
-</path>
+```
+codec:tas2557s.6-004c :: Stereo DAC     : On
+codec:tas2557s.6-004c :: Stereo ClassD  : On
+codec:tas2557s.6-004c :: Stereo OUT     : On
+codec:tas2557s.6-004c :: Stereo ASI1    : On
+platform:...msm-pcm-routing :: PRI_MI2S_RX Audio Mixer : On
+WSA Spk Switch                          : 0
 ```
 
-plus WSA control registers:
+`tas2557s.6-004c` = a TAS2557 on I2C bus 6, address 0x4c. The addresses and GPIOs then came
+from the downstream device tree on the device itself, `/proc/device-tree/soc/i2c@c1b6000/tas2557s@4c`:
 
-```xml
-<ctl name="SpkrLeft WSA PA Gain"  value="G_0_DB" />
-<ctl name="SpkrRight WSA PA Mute" value="1" />
-<ctl name="SpkrLeft SWR DAC_Port Switch" value="0" />
-<ctl name="SpkrLeft BOOST Switch" value="0" />
-<ctl name="SpkrLeft VISENSE Switch" value="0" />
-<ctl name="AIF1_VI_SDW Mixer SPKR_VI_1" value="0" />
+```
+ti,left-channel  = 0x4c      ti,right-channel = 0x4e
+ti,reset-gpio-left  = <&tlmm 80>     ti,irq-gpio-left  = <&tlmm 28>
+ti,reset-gpio-right = <&tlmm 48>     ti,irq-gpio-right = <&tlmm 55>
 ```
 
-So: **audio goes over `PRI_MI2S` to two WSA881x Class-D smart amps**, whose control and
-VI-sense (voltage/current feedback for excursion protection) ride SoundWire. `wsatz.11` and
-`wsatz.12` are the two amps' thermal zones. The internal codec's `SPK_OUT` plays no part.
+### Method worth reusing
 
-### The trap that caused the earlier wrong answer
+- **Capture every widget that powers on, rather than checking widgets you guessed.** The
+  active chain names its own hardware. `/sys/kernel/debug/asoc/<card>/<component>/dapm/<widget>`,
+  first line, during playback.
+- **Measure on a configuration that works.** UT's speakers work; Nura's do not. Everything
+  here came from the working one.
 
-`mixer_paths.xml` also contains this:
+## Open points in the patch
 
-```xml
-<path name="speaker">
-    <ctl name="SPK" value="Switch" />
-</path>
-```
+Both are low-risk but unverified, and marked in the patch:
 
-That path is **not** what the audio HAL uses for speaker playback, and the control `SPK` does
-not even exist in the mainline driver's control list. Quoting it as "Android's own recipe is
-a single switch" produced a model of the hardware in which the internal codec drove the
-speakers. Everything built on that was wrong. **A config file contains many paths; the one
-that matters is the one the code actually selects.**
+1. **Supplies.** `vbat-supply = <&vph_pwr>` is certain. tulip also wires `iovdd`/`avdd`/`dvdd`
+   to `vreg_l6b_1p8`, but **clover's `l6b` is 3.3 V** (`vreg_l6b_3p3`), so tulip's label must
+   not be copied. The downstream clover DT declares no supplies for this amp at all, implying
+   the rails are board-fixed, and ASoC falls back to a dummy regulator for a missing supply.
+   They are therefore omitted rather than guessed. If the amps fail to probe, the 1.8 V
+   candidates on clover are `vreg_l8a_1p8`, `vreg_l9a_1p8`, `vreg_l10a_1p8`, `vreg_l13a_1p8`.
+2. **Stereo is new ground.** tulip and jasmine each use a *single* TAS2557. clover is the
+   first stereo pair in pmaports, so the `sound-name-prefix` approach ("Left Spk"/"Right Spk")
+   and the two-codec `pri-mi2s-dai-link` are the parts most likely to need adjustment. The
+   driver does support it in principle — it validates `ti,channel must be 0 or 1` and logs
+   `TAS2557 probed (I2C addr 0x%02x, %s channel)`.
 
-## What is required
+**None of this is tested yet.** The next step is building the kernel package with the patch,
+repacking `boot.img`, and `fastboot boot`-ing it.
 
-| piece | state |
-|---|---|
-| `soundwire-bus`, `soundwire-qcom` | **present**, built as modules |
-| `PRI_MI2S_RX Audio Mixer MultiMedia1` routing control | **present** (`numid=146`) — q6routing creates backends generically |
-| `CONFIG_SND_SOC_WSA881X` | **not set** — the amp driver is not compiled |
-| SoundWire master node in the clover DTS | **absent** |
-| two `wsa881x` nodes with their SoundWire addresses | **absent** |
-| a `PRI_MI2S` dai-link in the `sound` node | **absent** — only `INT0_MI2S` playback and `INT3_MI2S` capture exist |
-| speaker `audio-routing` entries | **absent** |
-| UCM `Speaker` device | absent, and pointless until the above lands |
+## Three retracted conclusions
 
-The driver itself exists in mainline (`sound/soc/codecs/wsa881x.c`), so the kernel side is a
-config change rather than new code. The device-tree side is real work: the SDM660 LPASS
-SoundWire master's address and the two amps' SoundWire device IDs have to be established —
-most readily from the downstream Android DTS for clover, not guessed.
+This took three wrong answers before the right one, and the pattern is the lesson:
 
-## Why the volume OSD says "Headphones (3.5 mm jack)" with nothing plugged in
+1. **"Speakers are not implemented in mainline."** Five arguments, four false.
+2. **"It is a configuration problem — the internal codec's `SPK DAC` just needs enabling."**
+   Measured wrong: `Digital RX3 Mute Switch` had been set to `1`, and that control is named
+   *Mute*. Driving the internal codec correctly afterwards powered
+   `SPK DAC → SPK PA → SPK_OUT` fully — and produced silence, because that output is not
+   wired to these speakers.
+3. **"The speakers are WSA881x amps on SoundWire."** Taken from
+   `SND_DEVICE_OUT_SPEAKER_WSA` in the vendor config — a path for a *different variant* of
+   the hardware. clover's actual device is the TAS2557.
 
-Not a jack-detection bug. The kernel is correct — `Headset Jack` reads `off`. clover's UCM
-defines only `Headphones` and `Headset Mic`, so headphones are the **only** playback device
-in existence, and PipeWire labels the stream accordingly whatever the jack does. With no
-working speaker and no earpiece on this model, that label is currently accurate.
+Each wrong answer came from reading a *plausible* artefact instead of observing the working
+system: a config file's wrong path, a control whose polarity was assumed, a bus that was
+disabled in the device tree (which is also why "there is no amplifier on I2C" was wrong —
+`&blsp_i2c6` is off, so nothing could enumerate).
 
-## Files here
-
-- [`speaker-test.sh`](speaker-test.sh) — the on-device test. Its value now is as a method:
-  it bypasses UCM and PipeWire (UCM reapplies its own mixer settings when a stream starts,
-  so configuring first and playing afterwards can undo the thing being tested) and sets the
-  path *while* the tone runs.
-
-## Lesson
-
-The bottom line of the very first conclusion — "this needs a DTS change and a kernel
-rebuild" — turned out to be right. But it was reached from five arguments, four of which
-were false, and it was then retracted on the strength of those being false. Both the
-original claim and the retraction skipped the one step that would have settled it in
-minutes: **read how the stock firmware drives the hardware.** The vendor partition was
-mounted and readable the whole time.
+Also worth noting: `tulip`/`jasmine`'s UCM, labelled *"Built-in Speaker (TAS2557 smart
+amplifier)"*, was the right answer the whole time and was explicitly dismissed here on the
+grounds that "clover has no TAS2557".

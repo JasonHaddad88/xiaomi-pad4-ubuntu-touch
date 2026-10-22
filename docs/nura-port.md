@@ -205,9 +205,36 @@ request is refused outright rather than silently granted. `noload` is the part t
 suppresses the journal replay; plain `ro` does not. Full file:
 [`device-fixes/nura/udisks2-mount_options.conf`](../device-fixes/nura/udisks2-mount_options.conf).
 
-**NOT yet verified across a reboot.** This section has now claimed success twice and been
-wrong twice, and two further approaches (`UDISKS_AUTO`, fstab `noauto`) failed their first
-real test. Treat it as open until the check below passes on a fresh boot.
+**VERIFIED across a reboot, 22 October 2026** — the first approach here that passed a real
+boot test, with kernel-level evidence rather than an absence of symptoms:
+
+```
+/dev/mmcblk1p2 on /media/phablet/pmOS_root type ext4
+    (ro,nosuid,nodev,relatime,block_validity,delalloc,nojournal_checksum,norecovery,uhelper=udisks2)
+
+EXT4-fs (mmcblk1p2): mounted filesystem without journal. Opts: noload
+```
+
+udisks2 still mounts the card — that could not be prevented — but it mounts it read-only with
+`noload`, and the kernel confirms it opened the filesystem **without the journal**. The
+corruption mechanism is gone, not merely unobserved.
+
+Four approaches were needed to get here, three of which failed their first real test:
+
+| attempt | result |
+|---|---|
+| `ENV{UDISKS_IGNORE}="1"` | property applied; mounted `rw` anyway |
+| `ENV{UDISKS_AUTO}="0"` | property applied; mounted `rw` anyway |
+| `noauto` in `/etc/fstab` | entries wiped — UT regenerates fstab every boot |
+| **`/etc/udisks2/mount_options.conf`** | **works** |
+
+Check it on any fresh boot with the card inserted — both the mount options and the kernel
+line matter:
+
+```sh
+mount | grep mmcblk1                              # must show ro and norecovery
+dmesg | grep "EXT4-fs (mmcblk1p2)"                # must say "without journal ... noload"
+```
 
 **The one guaranteed mitigation, independent of all of this: take the SD card out when not
 running Nura.**

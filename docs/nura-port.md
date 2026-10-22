@@ -18,7 +18,7 @@ sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 | Android container / libhybris | **none** | required |
 | display, touch, 3D | works (but see the black-screen bug) | works |
 | **Wi-Fi** | **works, WEP included — fixed here, see below** | works |
-| **speakers** | **no — cause still open, candidate fix untested** | works, loud |
+| **speakers** | **no — WSA881x amps absent from the device tree** | works, loud |
 | headphones | works | works |
 | camera | no | **works** |
 | Bluetooth | reported working | masked (crash-looped) |
@@ -200,47 +200,96 @@ browsing. `pkgrel=99` keeps `apk` from replacing the package on upgrade.
 WEP is broken encryption and this does not change that; the package exists because it is the
 only network at the device's location.
 
-## Open — speakers: an earlier conclusion here was wrong
+## Not fixed — speakers are WSA881x amps the device tree does not describe
 
-Headphones work; **speakers still produce nothing**. This section previously said that was
-unfixable without a kernel rebuild, because mainline had no speaker support for this SoC.
-**That was wrong**, and the reasoning behind it does not survive checking the compiled DTB
-and the shipped UCM tree:
+Headphones work; **speakers produce nothing**, and the cause is now established rather than
+guessed. Full workings, including the DAPM measurements:
+[`device-fixes/nura/speakers/`](../device-fixes/nura/speakers/).
 
-- `audio-routing` was said to contain "only headphone, earpiece and mic paths, no speaker
-  widget". It contains **no headphone paths either** — and headphones work. What it does
-  contain is `"PDM_RX3", "Digital PDM_RX3"`, and `PDM_RX3` is exactly the input the
-  `SPK DAC` takes. The speaker feed **is** declared.
-- "No SDM660 device has speaker support" — `tulip` and `jasmine` both ship a
-  `SectionDevice."Speaker"`. Theirs drives a **TAS2557 smart amp on `PRI_MI2S`**, which
-  clover does not have, so their recipe does not transfer. But the claim as written was
-  false.
-- "`SPK DAC Switch` — enabling it changes nothing" was measured in a test where
-  `Digital RX3 Mute Switch` had been set to `1`. **That control is named *Mute*: `1` means
-  muted.** The test silenced the path it was testing.
+**The speakers are two WSA881x smart amplifiers fed over `PRI_MI2S`.** From the tablet's own
+vendor partition, which `msm-firmware-loader` exposes at `/run/msm-firmware-loader/mnt/vendor`:
 
-The analog codec is `qcom,pm8916-wcd-analog-codec`, instantiated inside the PMIC, and its
-interrupts include `cdc_spk_cnp_int`, `cdc_spk_clip_int`, `cdc_spk_ocp_int` — speaker
-click-and-pop, clipping and over-current. That driver implements a speaker.
+```xml
+<device name="SND_DEVICE_OUT_SPEAKER_WSA" interface="PRI_MI2S_RX"/>
+<param key="spkr_1_tz_name" value="wsatz.11"/>
+<param key="spkr_2_tz_name" value="wsatz.12"/>
 
-`Qualcomm/apq8016-sbc/HiFi.conf` drives the **same codec** through its internal `SPK DAC`,
-which gives a known-good sequence to copy — with one trap: clover's DTS puts
-`sound-name-prefix = "Digital"` on the digital codec, so its controls are
-`Digital RX3 MIX1 INP1` and so on, while the analog `SPK DAC Switch` is unprefixed. apq8016
-prefixes neither, so copying its file verbatim does nothing at all.
+<path name="deep-buffer-playback speaker">
+    <ctl name="PRI_MI2S_RX Audio Mixer MultiMedia1" value="1" />
+</path>
+```
 
-**Candidate fix and an on-device test, not yet run:**
-[`device-fixes/nura/ucm-clover-speaker/`](../device-fixes/nura/ucm-clover-speaker/).
+SoundWire carries the amps' control and VI-sense registers (`WSA PA Gain`, `WSA PA Mute`,
+`SWR DAC_Port`, `BOOST`, `VISENSE`); the audio itself goes over MI2S. The internal codec's
+`SPK_OUT` plays no part on this board.
 
-What is still genuinely unknown is whether `SPK_OUT` is physically wired to this tablet's
-speakers. The headphone outputs of the same codec are connected and work, so its analog
-outputs do reach the board — but that is not proof about `SPK_OUT` specifically. If the
-test is silent, the original assumption may yet be right, and the next step is the
-downstream Android `mixer_paths*.xml` and stock DTS rather than the kernel.
+That was confirmed the hard way first. The internal codec *does* have a complete speaker
+chain and the driver drives every bit of it — with a tone playing,
+`Digital RX3 MIX1 → RX3 INT → Digital PDM_RX3 → PDM_RX3 → SPK DAC → SPK PA → SPK_OUT`
+all report `Power: On` in DAPM debugfs, `SPK PA` including a real register write
+(`0xf1b2` mask `0x40`), while the headphone chain stayed `Off` as a control and powered on
+when switched. **Result: total silence.** The kernel powers an output that is not wired to
+these speakers.
+
+### What it needs
+
+| piece | state |
+|---|---|
+| `soundwire-bus`, `soundwire-qcom` | **present** (modules) |
+| `PRI_MI2S_RX Audio Mixer MultiMedia1` | **present** (`numid=146`) |
+| `CONFIG_SND_SOC_WSA881X` | **not set** — amp driver not compiled |
+| SoundWire master + two `wsa881x` DTS nodes | **absent** |
+| `PRI_MI2S` dai-link in the `sound` node | **absent** (only `INT0`/`INT3` exist) |
+
+`sound/soc/codecs/wsa881x.c` exists in mainline, so the kernel side is a config change, not
+new code. The device-tree side is real work: the SDM660 LPASS SoundWire master address and
+the two amps' SoundWire IDs need to come from the downstream Android DTS, not guesswork.
+
+### The volume OSD saying "Headphones (3.5 mm jack)" with nothing plugged in
+
+Not a jack bug — the kernel reports `Headset Jack` as `off` correctly. clover's UCM defines
+only `Headphones` and `Headset Mic`, so headphones are the only playback device that exists
+and PipeWire labels the stream accordingly. With no working speaker and no earpiece on this
+model, the label is currently accurate.
+
+### Two retracted conclusions, and why
+
+This section twice said something false before landing here, and the reason is worth keeping:
+
+1. First: "speakers are not implemented in mainline at all." Five arguments, **four false** —
+   `audio-routing` was said to list headphone paths and no speaker (it lists *no* headphone
+   paths, yet headphones work); "no SDM660 device has speaker support" (`tulip` and `jasmine`
+   both ship one); "`SPK DAC Switch` changes nothing" (measured with
+   `Digital RX3 Mute Switch` set to `1` — the control is named *Mute*, so the test silenced
+   the path it was testing).
+2. Then, on finding those false: "it is a configuration problem." Also wrong.
+
+The bottom line of the first conclusion — needs a DTS change and a kernel rebuild — was
+right. Both it and its retraction skipped the one step that settles such a question in
+minutes: **read how the stock firmware drives the hardware.** The vendor partition was
+mounted and readable throughout.
 
 ## Access notes
 
 - **SSH into Nura**: `user` / `0000`, over Wi-Fi once connected. pmOS enables sshd by default.
+- **The home network does not isolate clients.** An earlier note here claimed AP isolation on
+  `Blink7183AD` and drove a whole phone-hotspot workaround. It is wrong: with the PC on that
+  network, the tablet answered on port 22 immediately. Put both on the home Wi-Fi and work
+  directly. Find the tablet with a port-22 sweep rather than ping — it does not answer ICMP:
+
+  ```sh
+  for n in $(seq 1 254); do
+    (timeout 2 bash -c "echo > /dev/tcp/192.168.1.$n/22" 2>/dev/null && echo "192.168.1.$n") &
+  done; wait
+  ```
+
+- **Reading the stock Android audio/firmware config from Nura**: `msm-firmware-loader` mounts the
+  vendor partition at `/run/msm-firmware-loader/mnt/vendor`. `etc/mixer_paths.xml` and
+  `etc/audio_platform_info.xml` there are the authority on how the hardware is really driven —
+  check them *before* theorising about an audio path.
+- **DAPM widget power states** are in `/sys/kernel/debug/asoc/Xiaomi Mi Pad 4/<component>/dapm/`.
+  `head -1 "<widget>"` gives `On`/`Off` plus the backing register. This turns "is this output
+  actually active?" into a measurement, and a known-working output makes a positive control.
 - **USB networking** uses **NCM**, not RNDIS. Windows binds the whole composite gadget as an Android
   ADB interface (`oem194.inf` matches `VID_18D1&PID_D001`), which hides the network function. Looking
   for an "RNDIS" child in Device Manager will not find one.

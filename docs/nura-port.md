@@ -157,7 +157,30 @@ pmOS_root: ********** WARNING: Filesystem still has errors **********
 Ubuntu Touch:
 
 ```
-SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_AUTO}="0", ENV{UDISKS_IGNORE}="1"
+```
+
+**`UDISKS_IGNORE` on its own does not work, and that is what this section said until
+22 October 2026.** It only hides the device from the UI. The property was set —
+
+```
+$ udevadm info --query=property --name=/dev/mmcblk1p2
+UDISKS_IGNORE=1
+```
+
+— and the card was mounted **read-write** anyway:
+
+```
+/dev/mmcblk1p2 on /media/phablet/pmOS_root type ext4 (rw,...,uhelper=udisks2)
+```
+
+`UDISKS_AUTO=0` is the property that actually disables auto-mounting. So for months the
+card was still being auto-mounted rw by a 4.4 kernel on every Ubuntu Touch boot while this
+document claimed the hazard was closed. Verify it, with the card inserted:
+
+```sh
+udevadm info --query=property --name=/dev/mmcblk1p2 | grep UDISKS   # both properties
+mount | grep mmcblk1                                                # must print nothing
 ```
 
 **And never mount the card from Ubuntu Touch without `-o ro,noload`.** Plain `-o ro` is not enough —

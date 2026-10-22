@@ -4,30 +4,37 @@
 # WHY THIS EXISTS
 #
 # The Nura SD card's root filesystem uses metadata_csum, metadata_csum_seed,
-# 64bit and orphan_present. Ubuntu Touch runs a 4.4 kernel which does not
-# understand orphan_present, so it refuses a read-write mount:
-#
-#     EXT4-fs (mmcblk1p2): couldn't mount RDWR because of unsupported optional features (10000)
-#
-# but udisks2 auto-mounts the card anyway on every boot, and ext4 STILL REPLAYS
-# THE JOURNAL even for a read-only mount:
-#
-#     EXT4-fs (mmcblk1p2): INFO: recovery required on readonly filesystem
-#     EXT4-fs (mmcblk1p2): write access will be enabled during recovery
-#
-# A kernel that cannot maintain those checksums then writes metadata anyway. After
-# any unclean Nura shutdown this silently corrupts the card:
+# 64bit and orphan_present. Ubuntu Touch runs a 4.4 kernel which cannot
+# maintain those, yet udisks2 auto-mounts the card on every boot and ext4
+# replays the journal, writing metadata it cannot checksum correctly. After any
+# unclean Nura shutdown this silently corrupts the card:
 #
 #     Group 18 block bitmap does not match checksum.
 #     Orphan file (inode 12) block 65 is not clean.
 #     pmOS_root: ********** WARNING: Filesystem still has errors **********
 #
-# e2fsck could see 12 files where there were 33,151, and Nura booted to a black
+# e2fsck once saw 12 files where there were 33,151, and Nura booted to a black
 # screen. This happened repeatedly before the cause was understood.
 #
-# Keep udisks2 away from the card entirely.
-SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_IGNORE}="1"
+# UDISKS_IGNORE ALONE DOES NOT WORK. That was the original fix here and it was
+# wrong. UDISKS_IGNORE only hides the device from the UI; it does not stop
+# auto-mounting. Verified on 22 October 2026: the property was set --
+#
+#     udevadm info --query=property --name=/dev/mmcblk1p2
+#       UDISKS_IGNORE=1
+#
+# -- and the card was still mounted READ-WRITE:
+#
+#     /dev/mmcblk1p2 on /media/phablet/pmOS_root type ext4 (rw,...,uhelper=udisks2)
+#
+# UDISKS_AUTO=0 is the property that actually disables auto-mounting. Both are
+# set below: AUTO to stop the mount, IGNORE to also keep it out of the UI.
+SUBSYSTEM=="block", KERNEL=="mmcblk1*", ENV{UDISKS_AUTO}="0", ENV{UDISKS_IGNORE}="1"
 
+# Verify after installing, with the card inserted:
+#     udevadm info --query=property --name=/dev/mmcblk1p2 | grep UDISKS
+#     mount | grep mmcblk1        # must print nothing
+#
 # When you DO need to read the card from Ubuntu Touch, always use:
 #     sudo mount -o ro,noload /dev/mmcblk1p2 /mnt/nura
 # Plain "-o ro" is NOT enough - noload is what suppresses the journal replay.

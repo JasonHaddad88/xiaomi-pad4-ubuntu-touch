@@ -151,6 +151,47 @@ their own.
 The practical rule: judge Wi-Fi by whether it associates and holds, and by the absence of
 `firmware crashed!`, not by these fields.
 
+## Fix 6 — DNS: every site failed while the network was fine
+
+**Symptom:** Firefox said *"We're having trouble finding that site"* for every address, on a
+connection that was otherwise working.
+
+It was never connectivity. `ping 1.1.1.1` was 0% loss, and the router answered DNS directly:
+
+```
+$ nslookup example.com 192.168.1.254      # works
+$ getent hosts example.com                 # FAILS
+```
+
+Everything was configured correctly — `/etc/resolv.conf` → `stub-resolv.conf`,
+`systemd-resolved` active, stub listening on `127.0.0.53:53`, and the right upstream picked
+up from NetworkManager:
+
+```
+Current DNS Server: 192.168.1.254
+DNSSEC=allow-downgrade/supported        <-- the problem
+```
+
+The router's DNS proxy answers plain queries but does not survive DNSSEC validation, so
+`systemd-resolved` timed out on every lookup. Direct queries worked because they skip
+validation.
+
+**Fix** — [`device-fixes/nura/resolved-10-clover-dns.conf`](../device-fixes/nura/resolved-10-clover-dns.conf),
+installed as `/etc/systemd/resolved.conf.d/10-clover-dns.conf`:
+
+```ini
+[Resolve]
+DNSSEC=no
+```
+
+then `systemctl restart systemd-resolved`. Persists, because the Nura rootfs is writable.
+
+**The diagnostic worth reusing:** separate connectivity from resolution before touching
+anything. `ping 1.1.1.1` proves the network; `nslookup <host> <router>` proves the upstream
+server; `getent hosts <host>` proves the local resolver path. When the first two pass and the
+third fails, the fault is in the resolver, not the network — and DNSSEC against consumer
+router DNS is the usual reason.
+
 ## Unresolved — some access points crash the Wi-Fi firmware
 
 At one location, Nura cannot join a WEP network that **Ubuntu Touch joins fine** on the same

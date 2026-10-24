@@ -131,6 +131,70 @@ python3 ath10k-bdencoder --create board.json
 none — and does not stop connectivity. The real MAC (`20:a6:0c:5a:bf:6f`) is in
 `persist/wlan_mac.clover` if it is ever worth wiring up.
 
+### The absence of a `board_file` line is normal — do not read it as a fault
+
+With `ath10k_core.debug_mask=0x2` set from the first probe, a **working** boot on this device
+logs no `board_file` line at all:
+
+```
+ath10k_snoc: qmi chip_id 0x30214 chip_family 0x4001 board_id 0xff soc_id 0x40050000
+ath10k_snoc: firmware ver  api 5 features ... crc32 17fea018
+ath10k_snoc: htt-ver 3.50 wmi-op 4 htt-op 3 cal file max-sta 32 raw 0 hwcrypto 1
+```
+
+— and Wi-Fi is associated, no crashes, no txpower errors. So "no `board_file` line" and
+`board_file ... crc32 00000000` in a crash dump are **not** evidence that calibration failed.
+This is the same trap as `chip_id 0x00000000`, which is always zero on WCN3990 and was
+misread once before in this project. Zero and absent fields on this chip mean nothing on
+their own.
+
+The practical rule: judge Wi-Fi by whether it associates and holds, and by the absence of
+`firmware crashed!`, not by these fields.
+
+## Unresolved — some access points crash the Wi-Fi firmware
+
+At one location, Nura cannot join a WEP network that **Ubuntu Touch joins fine** on the same
+hardware with the same key. So it is a mainline ath10k problem, not the network or the key.
+
+```
+ath10k_snoc 18800000.wifi wlan0: WEP/TKIP use, limiting to legacy
+ath10k_snoc 18800000.wifi: firmware crashed! (guid ...)
+ath10k_snoc 18800000.wifi: failed to set 2g txpower 40: -108
+ath10k_snoc 18800000.wifi: device successfully recovered
+```
+
+NetworkManager then reports *"The device could not be readied for configuration"*, because
+wlan0 went away underneath it.
+
+**The txpower errors come *after* `firmware crashed!`** — they are consequences, not the
+cause. An earlier version of this section blamed missing board calibration; that was wrong,
+see above.
+
+| | working | failing |
+|---|---|---|
+| AP | Blink7183AD | Blink0D833C |
+| channel | 11 (2462 MHz) | 1 (2412 MHz) |
+| security | Open/WEP | Open/WEP |
+| rate | 36 Mbit/s (legacy) | n/a — crashes |
+| Ubuntu Touch | works | **works** |
+| Nura | works | **firmware crash** |
+
+Both are WEP, both Open auth, same key length. The difference is the access point itself.
+
+### How to investigate it, next time you are at that location
+
+[`device-fixes/nura/wifi-ap-crash-diagnostic.sh`](../device-fixes/nura/wifi-ap-crash-diagnostic.sh)
+captures the AP's advertised capabilities and the firmware's behaviour in one run and writes
+everything to `/var/log/wifi-ap-crash.log` on Nura's own rootfs. Read it afterwards from
+Ubuntu Touch with `mount -o ro,noload`.
+
+**Do not debug this live over Wi-Fi.** Every live attempt in this project knocked the tablet
+off the network and cost a power cycle, and two of them never reached the thing being tested
+because `nmcli` hangs in a detached root context. Log to disk, reboot, read the disk.
+
+Worth trying there, since WEP forces legacy rates and the driver says so itself: pinning the
+profile to `bg`, disabling power save, and locking the channel.
+
 ## Fix 3 — Ubuntu Touch was corrupting the SD card on every boot
 
 **This one is nasty and not obvious.** Ubuntu Touch's udisks2 **auto-mounts the Nura card read-write**

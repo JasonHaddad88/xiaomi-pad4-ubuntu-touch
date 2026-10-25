@@ -3,21 +3,35 @@
 
 Usage:
     swap-bootimg-kernel.py <src.img> <Image.gz> <dtb> <out.img> [new-cmdline]
+    swap-bootimg-kernel.py --split <src.img> <out-Image.gz> <out.dtb>
 
 The ramdisk, load addresses and page size are copied verbatim from <src.img>.
 The DTB is appended to the gzipped kernel, which is what clover needs
-(deviceinfo_append_dtb="true"). The header id/hash is zeroed; `fastboot boot`
-does not check it.
+(deviceinfo_append_dtb="true").
 
-Pass [new-cmdline] to replace the kernel command line -- e.g. to drop
-"quiet splash" so kernel messages reach the screen. Keep the pmos_boot_uuid
-and pmos_root_uuid values from the original, or the initramfs cannot find
-root; the script warns if either disappears.
+The header `id` field is a SHA1 over the image contents and it **must be
+recomputed** -- clover's bootloader checks it. Zeroing it produces an image
+that fastboot accepts ("Booting OKAY") and that then silently fails to boot:
+black screen, no console, nothing on the network. That cost several wasted
+boot cycles, so do not "optimise" it away again.
+
+    id = SHA1(kernel || le32(ksize) || ramdisk || le32(rsize)
+                     || second || le32(ssize))
+
+Pass [new-cmdline] to replace the kernel command line. Keep the
+pmos_boot_uuid and pmos_root_uuid values from the original or the initramfs
+cannot find root; the script warns if either disappears.
+
+--split extracts a source image's own Image.gz and DTB, which is how to
+round-trip test this script: repacking an image from its own parts with its
+own cmdline must reproduce it byte for byte.
 """
+import hashlib
 import struct
 import sys
 
 HDR = 1632
+DTB_MAGIC = bytes([0xd0, 0x0d, 0xfe, 0xed])
 
 
 def rd(path):
@@ -30,7 +44,51 @@ def pad(data, page):
     return data + (b'\0' * (page - rem) if rem else b'')
 
 
+def parse(img):
+    if img[:8] != b'ANDROID!':
+        sys.exit("not an Android boot image")
+    (ksz, kaddr, rsz, raddr,
+     ssz, saddr, tags, ps, hv, osv) = struct.unpack_from('<10I', img, 8)
+    off = (HDR + ps - 1) // ps * ps
+    kernel = img[off:off + ksz]
+    off += (ksz + ps - 1) // ps * ps
+    ramdisk = img[off:off + rsz]
+    off += (rsz + ps - 1) // ps * ps
+    second = img[off:off + ssz]
+    return dict(ksz=ksz, kaddr=kaddr, rsz=rsz, raddr=raddr, ssz=ssz,
+                saddr=saddr, tags=tags, ps=ps, hv=hv,
+                kernel=kernel, ramdisk=ramdisk, second=second,
+                cmdline=img[64:576], id=img[576:608])
+
+
+def bootimg_id(kernel, ramdisk, second):
+    """The SHA1 mkbootimg stores in the header's id field."""
+    h = hashlib.sha1()
+    for part in (kernel, ramdisk, second):
+        h.update(part)
+        h.update(struct.pack('<I', len(part)))
+    return h.digest()
+
+
+def do_split(src, out_gz, out_dtb):
+    p = parse(rd(src))
+    i = p['kernel'].find(DTB_MAGIC)
+    if i < 0:
+        sys.exit("no appended DTB found in %s" % src)
+    with open(out_gz, 'wb') as f:
+        f.write(p['kernel'][:i])
+    with open(out_dtb, 'wb') as f:
+        f.write(p['kernel'][i:])
+    print("split %s: Image.gz=%d -> %s, DTB=%d -> %s"
+          % (src, i, out_gz, p['ksz'] - i, out_dtb))
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == '--split':
+        if len(sys.argv) != 5:
+            sys.exit(__doc__)
+        return do_split(*sys.argv[2:5])
+
     if len(sys.argv) < 5:
         sys.exit(__doc__)
 
@@ -38,45 +96,29 @@ def main():
     new_cmdline = sys.argv[5] if len(sys.argv) > 5 else None
 
     img = rd(src)
-    if img[:8] != b'ANDROID!':
-        sys.exit("not an Android boot image: %s" % src)
-
-    (ksz, kaddr, rsz, raddr,
-     ssz, saddr, tags, ps, hv, osv) = struct.unpack_from('<10I', img, 8)
-    cmdline_raw = img[64:576]
-    cmdline_txt = cmdline_raw.rstrip(b'\0').decode(errors='replace')
+    p = parse(img)
+    ps = p['ps']
+    cmdline_txt = p['cmdline'].rstrip(b'\0').decode(errors='replace')
 
     print("--- source: %s" % src)
     print("  page_size      = %d" % ps)
-    print("  header_version = %d" % hv)
-    print("  kernel  %9d @ 0x%08x" % (ksz, kaddr))
-    print("  ramdisk %9d @ 0x%08x" % (rsz, raddr))
-    print("  second  %9d @ 0x%08x" % (ssz, saddr))
-    print("  tags              @ 0x%08x" % tags)
+    print("  header_version = %d" % p['hv'])
+    print("  kernel  %9d @ 0x%08x" % (p['ksz'], p['kaddr']))
+    print("  ramdisk %9d @ 0x%08x" % (p['rsz'], p['raddr']))
+    print("  second  %9d @ 0x%08x" % (p['ssz'], p['saddr']))
+    print("  id             = %s" % p['id'][:20].hex())
     print("  cmdline = %r" % cmdline_txt)
 
-    # carve out the existing parts
-    off = (HDR + ps - 1) // ps * ps
-    off += (ksz + ps - 1) // ps * ps          # skip the old kernel
-    ramdisk = img[off:off + rsz]
-    off += (rsz + ps - 1) // ps * ps
-    second = img[off:off + ssz]
-
-    # new kernel blob = Image.gz with the DTB appended
-    k = rd(newk)
-    d = rd(dtb)
-    kern_new = k + d
+    kern_new = rd(newk) + rd(dtb)
     print("")
     print("--- new kernel blob")
-    print("  Image.gz       = %d" % len(k))
-    print("  DTB            = %d" % len(d))
+    print("  Image.gz       = %d" % len(rd(newk)))
+    print("  DTB            = %d" % len(rd(dtb)))
     print("  total          = %d  (old was %d, delta %+d)"
-          % (len(kern_new), ksz, len(kern_new) - ksz))
+          % (len(kern_new), p['ksz'], len(kern_new) - p['ksz']))
 
-    # rebuild the header: new kernel size, everything else identical
     h = bytearray(img[:HDR])
     struct.pack_into('<I', h, 8, len(kern_new))
-    struct.pack_into('<32x', h, 576)          # zero the id/hash
 
     if new_cmdline is not None:
         cb = new_cmdline.encode()
@@ -91,16 +133,24 @@ def main():
             if key in cmdline_txt and key not in new_cmdline:
                 print("  !! WARNING: %s dropped - root may not mount" % key)
 
-    blob = pad(bytes(h), ps) + pad(kern_new, ps) + pad(ramdisk, ps)
-    if ssz:
-        blob += pad(second, ps)
+    # recompute the id: the bootloader checks it
+    new_id = bootimg_id(kern_new, p['ramdisk'], p['second'])
+    h[576:608] = new_id + b'\0' * 12
+    print("")
+    print("--- id recomputed")
+    print("  old = %s" % p['id'][:20].hex())
+    print("  new = %s" % new_id.hex())
+
+    blob = pad(bytes(h), ps) + pad(kern_new, ps) + pad(p['ramdisk'], ps)
+    if p['ssz']:
+        blob += pad(p['second'], ps)
 
     with open(out, 'wb') as f:
         f.write(blob)
 
     print("")
     print("--- wrote %s: %d bytes" % (out, len(blob)))
-    print("  ramdisk reused verbatim: %d bytes" % len(ramdisk))
+    print("  ramdisk reused verbatim: %d bytes" % len(p['ramdisk']))
 
 
 if __name__ == '__main__':

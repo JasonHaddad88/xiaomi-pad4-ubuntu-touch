@@ -123,6 +123,25 @@ activity went to zero afterwards. gnome-software is D-Bus activated (`org.gnome.
 plus a `static` systemd user unit), so it is not in `/etc/xdg/autostart` and disabling an
 autostart entry would not have helped.
 
+## Measured result of the two fixes
+
+Verified on a clean boot with **only** the permanent config fixes active — no kernel-level
+tuning:
+
+```
+load average: 0.96, 1.22, 0.63        (was 3.2 - 6.3 before the fixes)
+apk-polkit "Getting package details": 0 occurrences this boot
+ModemManager: masked      gnome-software download-updates: false
+cups / avahi / tuned: masked      telephony autostarts: disabled
+```
+
+**Load average fell from 3–6 to about 1 at idle.** On a CPU that cannot boost, work that
+competes with the foreground is felt directly, so removing it is worth more here than on
+hardware that can simply clock up. Settings opens instead of dying, confirmed by the owner.
+
+This is the honest baseline for the port: bugs fixed, background bloat removed, nothing
+risky applied. Whatever sluggishness remains from here is the fixed CPU clock.
+
 ## Tuning that was tried and withdrawn
 
 Three live tunings were applied and **not** made permanent, because the tablet hard-froze

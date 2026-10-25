@@ -1,0 +1,93 @@
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index 483f1c5..2aace6c 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -41,3 +41,4 @@ qcom_ice-objs			+= ice.o
+ obj-$(CONFIG_QCOM_INLINE_CRYPTO_ENGINE)	+= qcom_ice.o
+ obj-$(CONFIG_QCOM_PBS) +=	qcom-pbs.o
+ obj-$(CONFIG_QCOM_UBWC_CONFIG) += ubwc_config.o
++obj-y += osm-dump.o
+diff --git a/drivers/soc/qcom/osm-dump.c b/drivers/soc/qcom/osm-dump.c
+new file mode 100644
+index 0000000..d815750
+--- /dev/null
++++ b/drivers/soc/qcom/osm-dump.c
+@@ -0,0 +1,78 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Temporary diagnostic for SDM660 (clover): dump the Operating State Manager
++ * register state at boot. STRICTLY READ-ONLY - no register is written.
++ *
++ * Mainline qcom-cpufreq-hw is a read-only consumer of an OSM LUT that
++ * firmware is expected to have programmed and enabled. On SDM660 the
++ * downstream kernel programs the LUT itself, so before adding a cpufreq
++ * driver we need to know what the bootloader actually left behind.
++ *
++ * Offsets from downstream clk-cpu-osm.c (LineageOS, sdm660).
++ */
++
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/printk.h>
++
++#define OSM_PWRCL_BASE		0x179c0000	/* A53 "pwrcl"  */
++#define OSM_PERFCL_BASE		0x179c2000	/* A73 "perfcl" */
++#define OSM_WIN_SIZE		0x2000
++
++#define OSM_VERSION_REG		0x0000
++#define OSM_ENABLE_REG		0x1004
++#define OSM_INDEX_REG		0x1150
++#define OSM_FREQ_REG		0x1154
++#define OSM_VOLT_REG		0x1158
++#define OSM_PERF_STATE_REG	0x1f10
++
++#define OSM_REG_SIZE		32	/* LUT row stride */
++#define OSM_TABLE_SIZE		40	/* LUT rows       */
++
++#define XO_KHZ			19200
++
++static void __init osm_dump_cluster(const char *name, phys_addr_t base)
++{
++	void __iomem *p;
++	u32 enable, perf_state;
++	int i;
++
++	p = ioremap(base, OSM_WIN_SIZE);
++	if (!p) {
++		pr_err("osm-dump: %s: ioremap(%pa) failed\n", name, &base);
++		return;
++	}
++
++	enable = readl_relaxed(p + OSM_ENABLE_REG);
++	perf_state = readl_relaxed(p + OSM_PERF_STATE_REG);
++
++	pr_info("osm-dump: %s base=%pa version=0x%08x enable=0x%08x (OSM %s) perf_state=0x%08x\n",
++		name, &base, readl_relaxed(p + OSM_VERSION_REG), enable,
++		(enable & 1) ? "ENABLED" : "disabled", perf_state);
++
++	for (i = 0; i < OSM_TABLE_SIZE; i++) {
++		u32 off = i * OSM_REG_SIZE;
++		u32 index = readl_relaxed(p + OSM_INDEX_REG + off);
++		u32 freq = readl_relaxed(p + OSM_FREQ_REG + off);
++		u32 volt = readl_relaxed(p + OSM_VOLT_REG + off);
++		u32 lval = freq & 0xff;
++		u32 src = (freq >> 30) & 0x3;
++
++		pr_info("osm-dump: %s[%02d] index=0x%08x freq=0x%08x volt=0x%08x | src=%u lval=%3u -> %6u kHz, vc/uv=%u\n",
++			name, i, index, freq, volt, src, lval,
++			lval * XO_KHZ, volt & 0xfff);
++	}
++
++	iounmap(p);
++}
++
++static int __init osm_dump_init(void)
++{
++	pr_info("osm-dump: ==== SDM660 OSM state as left by the bootloader ====\n");
++	osm_dump_cluster("pwrcl-A53", OSM_PWRCL_BASE);
++	osm_dump_cluster("perfcl-A73", OSM_PERFCL_BASE);
++	pr_info("osm-dump: ==== end ====\n");
++	return 0;
++}
++late_initcall(osm_dump_init);

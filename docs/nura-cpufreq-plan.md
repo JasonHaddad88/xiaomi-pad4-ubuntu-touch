@@ -1,3 +1,59 @@
+> **CORRECTION (2026-10-25).** The plan below was written on a false premise.
+> It assumed mainline's `qcom-cpufreq-hw` only needed the right register
+> offsets to drive SDM660's OSM. It does not: `qcom-cpufreq-hw` is a
+> *read-only consumer* of an OSM LUT that **firmware** is expected to have
+> programmed and enabled (true from SDM845 on). On SDM660 the **kernel**
+> programs it — downstream `clk-cpu-osm.c` writes `INDEX_REG`/`FREQ_REG`/
+> `VOLT_REG` for every row (lines 1562-1564) and then sets `ENABLE_REG = 1`
+> itself (line 741), after reading speedbin fuses and deriving open-loop
+> voltages, APM thresholds and MEM ACC settings.
+>
+> The register map and offsets in this document are still correct and still
+> needed. What changed is the question. It is no longer "what are the
+> offsets" but **"how much of the OSM did clover's bootloader leave live?"**
+> The CPUs do run at a programmed rate (A53 1378 MHz, A73 598 MHz — see
+> [nura-cpu-clock-measurement.md](nura-cpu-clock-measurement.md)), so the
+> OSM is at least partly set up.
+>
+> That is being settled by a read-only diagnostic kernel
+> (`device-fixes/nura/cpufreq/0001-osm-dump-diagnostic.patch`) which dumps
+> `ENABLE_REG`, the live perf state and all 40 LUT rows for both clusters.
+> Outcomes:
+>
+> - **LUT programmed and enabled** -> the small patch below is viable
+>   (`sdm660_soc_data` + DT node), with the `reg_dcvs_ctrl` fix noted below.
+> - **LUT empty or garbage** -> the LUT has to be programmed from scratch,
+>   voltages included. Much larger, and it carries real brown-out and
+>   over-volt risk.
+>
+> Do not write a perf state before that dump is read: against an
+> unprogrammed LUT, selecting an index selects an undefined voltage.
+>
+> One further correction to the patch below: `reg_dcvs_ctrl` is read
+> **unconditionally** (line 548) with no NULL check, and it sets
+> `per_core_dcvs`, which makes the driver write the perf state at
+> `reg_perf_state + 4 * core`. On SDM660 that would land on the interrupt
+> registers at 0x1f14+. SDM660 writes the perf state once per cluster, so
+> `per_core_dcvs` must stay false — and rather than guess at a register
+> whose bit 0 happens to read 0, the read should be guarded, mirroring how
+> `reg_current_vote` and `reg_intr_clr` are already handled:
+>
+> ```c
+> if (qcom_cpufreq.soc_data->reg_dcvs_ctrl &&
+>     readl_relaxed(data->base + qcom_cpufreq.soc_data->reg_dcvs_ctrl) & 0x1)
+>         data->per_core_dcvs = true;
+> ```
+>
+> Also confirmed against the mainline LUT decode: `LUT_SRC = GENMASK(31,30)`
+> and `freq = xo_rate * lval` only when `src != 0`. Downstream SDM660
+> `freq_val` words decode with `lval * 19.2 MHz` giving exactly the rated
+> frequencies (`0x4000f` -> 15 -> 288 MHz; `0x404003a` -> 58 -> 1113.6 MHz),
+> so the L-value encoding matches — but **`src` reads 0 in those words**,
+> which would make mainline report `cpu_hw_rate` for every row. The dump
+> will show what the live hardware actually holds in bits 31:30.
+
+---
+
 # Implementing CPU frequency scaling for SDM660 — everything needed
 
 **The problem:** mainline SDM660 has no cpufreq. Each cluster sits at whatever perf state the

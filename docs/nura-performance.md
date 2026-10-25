@@ -106,17 +106,60 @@ all 8 cores online:        AES unpinned  476 MB/s
 cpu1-4 offline (Silver only): AES unpinned 1038 MB/s     2.2x
 ```
 
+### It is not a crypto artefact - confirmed with three workload types
+
+The first measurement used `openssl speed -evp aes-128-cbc`, which exercises the ARMv8
+**hardware AES unit** rather than general CPU performance. That is a poor proxy, and the
+conclusion was briefly withdrawn on those grounds. Re-measured with workloads that have no
+hardware acceleration:
+
+| benchmark | type | cpu1 (Gold/A73) | cpu5 (Silver/A53) | ratio |
+|---|---|---|---|---|
+| RSA-2048 sign | pure integer bignum | 64.9/s | **127.4/s** | Silver **1.96x** |
+| MD5 | not accelerated on ARM | 115,800k | **198,246k** | Silver **1.71x** |
+| AES-128-CBC | hardware accelerated | 476,244k | **1,038,117k** | Silver **2.18x** |
+
+The inversion is real across every workload type, so the original finding stands. An A73 at
+equal clock should *beat* an A53 by 1.5-2x; this one delivers half, which puts the Gold
+cluster at roughly a quarter to a third of the Silver cluster's clock - almost certainly
+pinned at its **300 MHz minimum**, the lowest entry in the OSM table.
+
+The lesson: when a surprising result rests on one benchmark, resolve the doubt by measuring
+something different, not by reasoning about whether the benchmark was fair. Reasoning about
+it led to withdrawing a correct conclusion and reaching for a mechanism that hung the device.
+
 ### The fix used
 
-`cpu_capacity` in sysfs is **read-only**, so the hint cannot be corrected at runtime. Instead
-the interactive session is confined to the fast cores, leaving all eight online for system
-and background work:
+**Adopted: a device-tree capacity correction, flashed to the boot partition.**
+`capacity-dmips-mhz` is set from measured performance - Silver 1024, Gold 471 - so the
+scheduler prefers the cores that actually deliver, while **all eight stay available to
+everything**. Overflow still lands on the Gold cluster when the fast cores are busy, so
+nothing can starve.
 
-```ini
-# /etc/systemd/system/user.slice.d/90-fast-cores.conf
-[Slice]
-AllowedCPUs=0,5-7
+Verified on the running system after flashing:
+
 ```
+cpu0,5,6,7  part 0x801 (Silver)  cap 1024     online: 0-7
+cpu1,2,3,4  part 0x800 (Gold)    cap  471
+
+unpinned AES: 476,244k -> 1,025,545k    (2.15x)
+unpinned MD5: 115,800k ->   197,465k    (1.70x)
+```
+
+Owner's verdict: "much better". Speakers and Wi-Fi unaffected.
+
+### Rejected: confining the user session with cgroups
+
+The first attempt used a `user.slice` drop-in with `AllowedCPUs=0,5-7`, since `cpu_capacity`
+in sysfs is read-only and cannot be corrected at runtime. It produced the same throughput
+gain **and hung the tablet**: with the whole session restricted to four cores, one heavy app
+(`gnome-control-center` had already been seen consuming 907 MB and 4m21s of CPU) could starve
+everything in the session, including new ssh logins. sshd accepted connections but could not
+complete a banner exchange, and a power cycle was required.
+
+That drop-in was removed. **Confining a session to a subset of cores removes the headroom a
+runaway process needs**, which the device-tree approach preserves. If it is ever reinstated,
+it should apply to a narrower slice than all user processes.
 
 Full file with rationale:
 [`device-fixes/nura/user-slice-90-fast-cores.conf`](../device-fixes/nura/user-slice-90-fast-cores.conf).
@@ -128,14 +171,23 @@ workloads lose four (slower) cores — aggregate throughput across all eight is 
 higher than the four fast ones alone. For UI responsiveness on a tablet, preferring the fast
 cores is the right trade; for a build machine it would not be.
 
-### A device-tree alternative, built but not adopted
+### Flashing it without fastboot
 
-`backups/nura-internal-2026-10-25/boot-cap-test.img` carries a DTB with
-`capacity-dmips-mhz` set from measured performance (Silver 1024, Gold 471), keeping all eight
-cores available to everything while correcting the scheduler's view. It needs a `fastboot
-boot` to test, and `reboot bootloader` does **not** work on Nura — the hardware key
-combination is required. The cgroup approach was adopted instead because it needs no
-flashing and is instantly reversible.
+`reboot bootloader` does not work on Nura, so reaching fastboot needs the hardware key
+combination. That is only required for *testing* via `fastboot boot`; to make it permanent
+the boot partition can be written from the running system, because the running kernel is in
+RAM:
+
+```sh
+B=$(readlink -f /dev/disk/by-partlabel/boot)      # /dev/mmcblk1p12, 64 MB
+dd if=/dev/disk/by-partlabel/boot of=/tmp/boot-before.img bs=1M count=25   # keep a fallback
+dd if=boot-cap.img of="$B" bs=1M conv=fsync
+# verify, do not trust the write:
+dd if="$B" bs=1 count=$(stat -c %s boot-cap.img) | md5sum
+```
+
+Installed image kept as `backups/nura-internal-2026-10-25/boot-INSTALLED-speakers+capfix.img`
+(md5 `62cbaf2f3e2d24b0d5322376c7e69931`), read back and verified byte-for-byte after writing.
 
 ### The proper fix
 

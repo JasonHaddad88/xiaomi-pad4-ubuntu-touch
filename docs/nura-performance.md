@@ -79,6 +79,83 @@ Undo with `systemctl unmask <service>`, or by removing the `Hidden=true` line ap
 **Firefox is the other big consumer** — three processes at ~36% CPU combined. On a tablet
 with no frequency scaling, a lighter browser (GNOME Web) is noticeably better.
 
+## The big cores are the slow cores
+
+With no cpufreq, each cluster sits at whatever fixed clock the bootloader left it — and the
+two clusters are left at very different clocks. Measured with `openssl speed -evp
+aes-128-cbc` at 16 KB blocks, one core at a time on an idle system:
+
+| Linux CPU | part | microarchitecture | kernel capacity | **measured** |
+|---|---|---|---|---|
+| cpu1, 2, 3, 4 | `0x800` | Kryo 260 **Gold** (A73) | 1024 | **476 MB/s** |
+| cpu0, 5, 6, 7 | `0x801` | **Silver** (A53) | 640 | **1035 MB/s** |
+
+**The cores the scheduler is told are fast deliver less than half the throughput.**
+`capacity-dmips-mhz` is correct by microarchitecture — the A73 really is the bigger core —
+but wrong about *delivered* performance here, because the A73 cluster is stuck low.
+
+Note the interleaved enumeration: the DTB lists the Gold cluster (`cpu@100-103`) first, so
+Linux numbers them cpu1–cpu4, with the Silver cores at cpu0 and cpu5–cpu7. Pinning a
+benchmark to "cpu7" expecting a big core measures a little one — that mistake was made here
+first and produced a backwards conclusion.
+
+Proof it is placement and not capability — taking the Gold cluster offline:
+
+```
+all 8 cores online:        AES unpinned  476 MB/s
+cpu1-4 offline (Silver only): AES unpinned 1038 MB/s     2.2x
+```
+
+### The fix used
+
+`cpu_capacity` in sysfs is **read-only**, so the hint cannot be corrected at runtime. Instead
+the interactive session is confined to the fast cores, leaving all eight online for system
+and background work:
+
+```ini
+# /etc/systemd/system/user.slice.d/90-fast-cores.conf
+[Slice]
+AllowedCPUs=0,5-7
+```
+
+Full file with rationale:
+[`device-fixes/nura/user-slice-90-fast-cores.conf`](../device-fixes/nura/user-slice-90-fast-cores.conf).
+Applies live via `systemctl set-property user.slice AllowedCPUs=0,5-7`; no reboot, no
+flashing, nothing written to the device tree.
+
+**Trade-off:** user apps can no longer use the Gold cluster, so heavily parallel user
+workloads lose four (slower) cores — aggregate throughput across all eight is about 46%
+higher than the four fast ones alone. For UI responsiveness on a tablet, preferring the fast
+cores is the right trade; for a build machine it would not be.
+
+### A device-tree alternative, built but not adopted
+
+`backups/nura-internal-2026-10-25/boot-cap-test.img` carries a DTB with
+`capacity-dmips-mhz` set from measured performance (Silver 1024, Gold 471), keeping all eight
+cores available to everything while correcting the scheduler's view. It needs a `fastboot
+boot` to test, and `reboot bootloader` does **not** work on Nura — the hardware key
+combination is required. The cgroup approach was adopted instead because it needs no
+flashing and is instantly reversible.
+
+### The proper fix
+
+Upstream cpufreq for SDM660 would let the Gold cluster reach its rated 2.46 GHz and make it
+genuinely the fastest, after which both workarounds above should be deleted. The hardware
+pieces are identified: OSM at `0x179c0000`, CPRh at `0x179c4000` and `0x179c8000`, with the
+full frequency tables in the downstream device tree (`qcom,clk-cpu-osm`):
+
+```
+pwrcl (A53):  300, 633.6, 902.4, 1113.6, 1401.6, 1536, 1747.2, 1843.2 MHz
+perfcl (A73): 300, 1113.6, 1401.6, 1747.2, 1958.4, 2150.4, 2457.6 MHz
+```
+
+The kernel already ships `qcom-cpufreq-hw`, which binds the generic `qcom,cpufreq-hw`
+compatible and reads frequency tables from the OSM hardware LUT — so voltages would not have
+to be supplied by hand. What is missing is the per-cluster register layout for this OSM
+revision, which differs from the SDM845 generation the driver was written against. Guessing
+it would mean the driver writing into the CPU voltage-control region, which is why it was not
+attempted here.
+
 ## Two real bugs that were mistaken for slowness
 
 Both were found by reading the journal rather than by tuning, and both are config fixes that

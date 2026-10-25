@@ -108,3 +108,52 @@ trusting that the patch applied:
 ```sh
 zcat boot/vmlinuz | strings | grep -E "OSM state \(v2\)|survived the first read"
 ```
+
+---
+
+## v3: get the log out by panicking on purpose
+
+v2 failed for a reason that made the whole approach unworkable, not just
+buggy: **`CONFIG_DRM_MSM=m`**. The display driver is a module, loaded from
+userspace, so at `late_initcall` there is no framebuffer console at all.
+`console=tty0` prints nowhere. A hang there is invisible no matter what the
+cmdline says, so v2's "narrate each step to the screen" could never have
+worked, and the black screen said nothing about whether the dump was at
+fault.
+
+Meanwhile the device already had the right mechanism configured:
+
+- `ramoops@9fe00000`, `console-size = <0x80000>` in clover's device tree
+- `CONFIG_PSTORE=y`, `CONFIG_PSTORE_RAM=y`, `CONFIG_PSTORE_CONSOLE=y`
+- confirmed live at boot: `printk: legacy console [ramoops-1] enabled`
+
+So every printk is already recorded into persistent DRAM. The obstacle was a
+catch-22: escaping a hang needs a ~10 s power-button hold, and that drops
+DRAM power and wipes the buffer. Proven the hard way — after the v2 boot,
+`/sys/fs/pstore` was empty.
+
+**v3 ends in a deliberate `panic()`**, with `panic=10` on the cmdline. The
+kernel resets itself *warm*: DRAM keeps its contents, the device boots from
+flash on its own, and the dump is waiting in `/sys/fs/pstore`. If a register
+access aborts first, the oops is captured by the same path. No power-button
+hold, nothing wiped, and the self-reboot is the success signal.
+
+It also folds in the control test: if the `osm-dump` banner appears in
+pstore, the kernel boots fine and we can see how far the reads got. If pstore
+is empty, the kernel never ran, and `kernel-CONTROL-nopatch.apk` (an
+unpatched build of the same tree, kept for exactly this) isolates the patch.
+
+### Verified facts worth not re-deriving
+
+- `fastboot boot` **does** work on clover: the known-good image came up in
+  36 s. It is not a Xiaomi restriction.
+- The installed kernel is `r2`; this tree builds `r0`. The only difference is
+  commit `400b925` ("enable Vsmart Active 1 support"), which touches
+  netfilter netdev tables, `CDROM`/`BLK_DEV_SR` and
+  `DRM_PANEL_HIMAX_HX83112A`. Nothing clover needs, so an `r0` build is a
+  valid baseline.
+- `# CONFIG_MODVERSIONS is not set` and `# CONFIG_MODULE_SIG_FORCE is not
+  set`, and vermagic is `7.0.14-sdm660 SMP preempt mod_unload aarch64` in
+  both. The installed modules load against a locally built kernel.
+- Build identity: a local build reports `#1-postmarketos-qcom-sdm660`,
+  the installed one `#3-...`. That is how to tell which kernel actually ran.

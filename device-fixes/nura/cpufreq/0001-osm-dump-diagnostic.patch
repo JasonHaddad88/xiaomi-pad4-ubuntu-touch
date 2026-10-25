@@ -9,21 +9,33 @@ index 483f1c5..2aace6c 100644
 +obj-y += osm-dump.o
 diff --git a/drivers/soc/qcom/osm-dump.c b/drivers/soc/qcom/osm-dump.c
 new file mode 100644
-index 0000000..9f3b541
+index 0000000..de0095d
 --- /dev/null
 +++ b/drivers/soc/qcom/osm-dump.c
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,118 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Temporary diagnostic for SDM660 (clover): dump the Operating State Manager
-+ * register state at boot. STRICTLY READ-ONLY - no register is written.
++ * register state at boot. The register accesses are STRICTLY READ-ONLY.
 + *
-+ * v2: the v1 dump hung the device with a black screen. Reading these
-+ * registers may abort (the window can be XPU-protected or unclocked), and a
-+ * hang at late_initcall is invisible. So this version announces every step
-+ * BEFORE taking it and waits for the console, so the last line on screen names
-+ * the exact access that died. It also reads ENABLE_REG first and walks the
-+ * LUT only if that read survived.
++ * Getting the output off the device is the hard part:
++ *
++ *  - The display driver is a module (CONFIG_DRM_MSM=m), so at late_initcall
++ *    there is no framebuffer console. console=tty0 prints nowhere and a hang
++ *    is completely invisible - which is how v1 and v2 wasted a boot each.
++ *  - But clover reserves ramoops@9fe00000 with console-size=0x80000, and the
++ *    kernel has PSTORE_CONSOLE=y, so every printk is already being recorded
++ *    into persistent DRAM.
++ *  - The catch: escaping a hang needs a 10-second power-button hold, and that
++ *    drops DRAM power and wipes precisely the log we want.
++ *
++ * So this version ends in a deliberate panic(). With panic=10 on the cmdline
++ * the kernel resets itself warm, DRAM keeps its contents, the device boots
++ * from flash again on its own, and the whole dump is waiting in
++ * /sys/fs/pstore. If a register access aborts before that, the resulting oops
++ * is captured by the same mechanism.
++ *
++ * Offsets from downstream clk-cpu-osm.c (LineageOS, sdm660).
 + */
 +
 +#include <linux/init.h>
@@ -38,7 +50,6 @@ index 0000000..9f3b541
 +
 +#define OSM_VERSION_REG		0x0000
 +#define OSM_ENABLE_REG		0x1004
-+#define OSM_INDEX_REG		0x1150
 +#define OSM_FREQ_REG		0x1154
 +#define OSM_VOLT_REG		0x1158
 +#define OSM_PERF_STATE_REG	0x1f10
@@ -47,17 +58,17 @@ index 0000000..9f3b541
 +#define OSM_TABLE_SIZE		40
 +#define XO_KHZ			19200
 +
-+/* say it, flush it, then do it - so a hang leaves its cause on screen */
++/* say it, let the console drain, then risk the access */
 +static void __init say(const char *what, u32 off)
 +{
 +	pr_emerg("osm-dump: ABOUT TO READ %s (+0x%04x)\n", what, off);
-+	mdelay(30);	/* let the console drain before the risky access */
++	mdelay(30);
 +}
 +
 +static void __init osm_dump_cluster(const char *name, phys_addr_t base)
 +{
 +	void __iomem *p;
-+	u32 enable, version;
++	u32 enable;
 +	int i;
 +
 +	pr_emerg("osm-dump: %s: ioremap(%pa, 0x%x)\n", name, &base, OSM_WIN_SIZE);
@@ -66,12 +77,10 @@ index 0000000..9f3b541
 +		pr_emerg("osm-dump: %s: ioremap FAILED\n", name);
 +		return;
 +	}
-+	pr_emerg("osm-dump: %s: ioremap ok -> %p\n", name, p);
 +
 +	say("VERSION", OSM_VERSION_REG);
-+	version = readl_relaxed(p + OSM_VERSION_REG);
-+	pr_emerg("osm-dump: %s: VERSION = 0x%08x  <-- survived the first read\n",
-+		 name, version);
++	pr_emerg("osm-dump: %s: VERSION = 0x%08x  <-- first read survived\n",
++		 name, readl_relaxed(p + OSM_VERSION_REG));
 +
 +	say("ENABLE", OSM_ENABLE_REG);
 +	enable = readl_relaxed(p + OSM_ENABLE_REG);
@@ -87,14 +96,13 @@ index 0000000..9f3b541
 +		goto out;
 +	}
 +
++	say("LUT rows 0..39", OSM_FREQ_REG);
 +	for (i = 0; i < OSM_TABLE_SIZE; i++) {
 +		u32 off = i * OSM_REG_SIZE;
-+		u32 freq, volt, lval, src;
-+
-+		freq = readl_relaxed(p + OSM_FREQ_REG + off);
-+		volt = readl_relaxed(p + OSM_VOLT_REG + off);
-+		lval = freq & 0xff;
-+		src = (freq >> 30) & 0x3;
++		u32 freq = readl_relaxed(p + OSM_FREQ_REG + off);
++		u32 volt = readl_relaxed(p + OSM_VOLT_REG + off);
++		u32 lval = freq & 0xff;
++		u32 src = (freq >> 30) & 0x3;
 +
 +		pr_emerg("osm-dump: %s[%02d] freq=0x%08x volt=0x%08x | src=%u lval=%3u -> %6u kHz, uv=%u\n",
 +			 name, i, freq, volt, src, lval, lval * XO_KHZ,
@@ -108,10 +116,18 @@ index 0000000..9f3b541
 +
 +static int __init osm_dump_init(void)
 +{
-+	pr_emerg("osm-dump: ======== SDM660 OSM state (v2) ========\n");
++	pr_emerg("osm-dump: ======== SDM660 OSM state (v3) ========\n");
 +	osm_dump_cluster("pwrcl-A53", OSM_PWRCL_BASE);
 +	osm_dump_cluster("perfcl-A73", OSM_PERFCL_BASE);
-+	pr_emerg("osm-dump: ======== end - survived everything ========\n");
++	pr_emerg("osm-dump: ======== all reads survived ========\n");
++
++	/*
++	 * Deliberate. panic=10 then resets the SoC warm, which keeps DRAM
++	 * powered so the ramoops console buffer holding everything above
++	 * survives into /sys/fs/pstore. Escaping by power button would wipe it.
++	 */
++	mdelay(200);
++	panic("osm-dump: finished - rebooting warm to preserve ramoops");
 +	return 0;
 +}
 +late_initcall(osm_dump_init);

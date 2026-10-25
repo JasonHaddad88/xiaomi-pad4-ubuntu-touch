@@ -79,6 +79,69 @@ Undo with `systemctl unmask <service>`, or by removing the `Hidden=true` line ap
 **Firefox is the other big consumer** — three processes at ~36% CPU combined. On a tablet
 with no frequency scaling, a lighter browser (GNOME Web) is noticeably better.
 
+## Two real bugs that were mistaken for slowness
+
+Both were found by reading the journal rather than by tuning, and both are config fixes that
+persist. Neither has anything to do with the missing cpufreq.
+
+### Settings "always crashed": a 25-second ModemManager timeout
+
+```
+gnome-control-center: Error connecting to ModemManager:
+  StartServiceByName for org.freedesktop.ModemManager1: Timeout was reached
+dbus-:1.4-org.gnome.Settings@0.service: Consumed 6.053s CPU over 34.364s wall clock
+phosh: Failed to launch app 'Settings'
+```
+
+`gnome-control-center` blocks on D-Bus activation of ModemManager. This is the Wi-Fi-only
+SDA660 — there is no modem — so activation times out after 25 s and Phosh gives up on the
+app. It looks like a crash and is a timeout.
+
+**Fix:** `systemctl mask ModemManager.service`. With the unit masked, D-Bus activation fails
+immediately instead of hanging, and Settings opens. Confirmed faster by the owner.
+
+### "Every app takes ages to load": gnome-software enumerating the whole repository
+
+```
+apk-polkit-server: Getting package details for [... several hundred packages ...]
+  repeated at 10:27:00, 10:27:07, 10:27:37, 10:27:43
+```
+
+`gnome-software` was repeatedly asking `apk-polkit-server` for details of **thousands** of
+packages — the entire Alpine repo, in batches, over and over. On a CPU that cannot boost,
+that starves everything else.
+
+**Fix:**
+
+```sh
+gsettings set org.gnome.software download-updates false
+gsettings set org.gnome.software download-updates-notify false
+```
+
+The app stays usable; only the background metadata refresh stops. `apk-polkit-server`
+activity went to zero afterwards. gnome-software is D-Bus activated (`org.gnome.Software.service`,
+plus a `static` systemd user unit), so it is not in `/etc/xdg/autostart` and disabling an
+autostart entry would not have helped.
+
+## Tuning that was tried and withdrawn
+
+Three live tunings were applied and **not** made permanent, because the tablet hard-froze
+while they were active — unreachable over SSH, requiring a power cycle:
+
+| tuning | status |
+|---|---|
+| GPU devfreq pinned to 370 MHz (from 19.2 MHz idle, `simple_ondemand`) | withdrawn, but **no heat** was observed |
+| 12 deep CPU idle states disabled (2336 us exit latency) | withdrawn — **prime suspect** |
+| swappiness 180 -> 100 | withdrawn, harmless but unproven |
+
+The idle-state change is the prime suspect: it alters low-level power management, and the
+kernel logged `driver: Idle state 1 target residency too low` right afterwards, which was
+noticed and not investigated. The freeze is not proven to be caused by it — this port has an
+unexplained freeze history — but three simultaneous changes meant nothing could be attributed.
+
+**If retesting, change one thing at a time.** The GPU governor is the most promising and
+showed no thermal cost.
+
 ## What is NOT the problem
 
 - **The GPU is fine.** `freedreno` / `FD512`, OpenGL ES 3.1 on Mesa 26.2.5 — real hardware

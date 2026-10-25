@@ -7,8 +7,13 @@ kernel (`linux-postmarketos-qcom-sdm660`, 7.0.14) talking to upstream Linux driv
 `xiaomi-clover` is **already a supported device** (category `testing`), so this was never a port in the
 sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 
-> Ubuntu Touch remains installed and untouched on internal storage. Nura runs **from the SD card**, so
-> both are available: power on normally for Ubuntu Touch, `fastboot boot` for Nura.
+> **As of 25 October 2026 Nura is installed on internal storage and Ubuntu Touch is gone.** The
+> tablet boots Nura normally — no SD card, no `fastboot boot`. Procedure, partition map and the
+> fastboot `std::bad_alloc` workaround: [`nura-internal-install.md`](nura-internal-install.md).
+> Ubuntu Touch is restorable from `backups/ut-2404-pre-nura-2026-10-15/` (verified).
+>
+> The move was for speed: the SD card reads at 37.9 MB/s against the eMMC's 221.9 MB/s, and the
+> rootfs went from 14 GB to 49 GB. The cost is the camera.
 
 ## Status on this device
 
@@ -20,7 +25,7 @@ sense the Ubuntu Touch work was. It is an install, plus fixing what is broken.
 | **Wi-Fi** | **works, WEP included — fixed here, see below** | works |
 | **speakers** | **works — fixed here, see below** | works, loud |
 | headphones | works | works |
-| camera | no | **works** |
+| camera | no — needs a sensor driver | *was working, UT now removed* |
 | Bluetooth | reported working | masked (crash-looped) |
 | rotation | works | works |
 

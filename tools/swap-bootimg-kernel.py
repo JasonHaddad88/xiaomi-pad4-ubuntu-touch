@@ -1,57 +1,107 @@
 #!/usr/bin/env python3
-"""Swap the kernel in an Android boot image (header v0), keeping everything else."""
-import struct, sys, os
+"""Swap the kernel in an Android boot image (header v0), keeping everything else.
+
+Usage:
+    swap-bootimg-kernel.py <src.img> <Image.gz> <dtb> <out.img> [new-cmdline]
+
+The ramdisk, load addresses and page size are copied verbatim from <src.img>.
+The DTB is appended to the gzipped kernel, which is what clover needs
+(deviceinfo_append_dtb="true"). The header id/hash is zeroed; `fastboot boot`
+does not check it.
+
+Pass [new-cmdline] to replace the kernel command line -- e.g. to drop
+"quiet splash" so kernel messages reach the screen. Keep the pmos_boot_uuid
+and pmos_root_uuid values from the original, or the initramfs cannot find
+root; the script warns if either disappears.
+"""
+import struct
+import sys
 
 HDR = 1632
 
-def rd(p):
-    with open(p, 'rb') as f:
+
+def rd(path):
+    with open(path, 'rb') as f:
         return f.read()
 
-def pad(b, ps):
-    r = len(b) % ps
-    return b + (b'\0' * (ps - r) if r else b'')
 
-src, newk, dtb, out = sys.argv[1:5]
-img = rd(src)
-assert img[:8] == b'ANDROID!', "not an Android boot image"
+def pad(data, page):
+    rem = len(data) % page
+    return data + (b'\0' * (page - rem) if rem else b'')
 
-(ksz, kaddr, rsz, raddr, ssz, saddr, tags, ps, hv, osv) = struct.unpack_from('<10I', img, 8)
-name = img[48:64]
-cmdline = img[64:576]
-extra = img[608:1632]
 
-print(f"--- source: {src}")
-print(f"  page_size      = {ps}")
-print(f"  header_version = {hv}")
-print(f"  kernel  {ksz:>9} @ 0x{kaddr:08x}")
-print(f"  ramdisk {rsz:>9} @ 0x{raddr:08x}")
-print(f"  second  {ssz:>9} @ 0x{saddr:08x}")
-print(f"  tags             @ 0x{tags:08x}")
-print(f"  cmdline = {cmdline.rstrip(chr(0).encode()).decode(errors='replace')!r}")
+def main():
+    if len(sys.argv) < 5:
+        sys.exit(__doc__)
 
-# carve out the existing parts
-off = (HDR + ps - 1) // ps * ps
-kern_old = img[off:off+ksz]; off += (ksz + ps - 1)//ps*ps
-ramdisk  = img[off:off+rsz]; off += (rsz + ps - 1)//ps*ps
-second   = img[off:off+ssz]
+    src, newk, dtb, out = sys.argv[1:5]
+    new_cmdline = sys.argv[5] if len(sys.argv) > 5 else None
 
-# new kernel = Image.gz with DTB appended (deviceinfo_append_dtb="true")
-k = rd(newk)
-d = rd(dtb)
-kern_new = k + d
-print(f"\n--- new kernel blob")
-print(f"  Image.gz       = {len(k)}")
-print(f"  DTB            = {len(d)}")
-print(f"  total          = {len(kern_new)}  (old was {ksz}, delta {len(kern_new)-ksz:+d})")
+    img = rd(src)
+    if img[:8] != b'ANDROID!':
+        sys.exit("not an Android boot image: %s" % src)
 
-# rebuild header with the new kernel size, everything else identical
-h = bytearray(img[:HDR])
-struct.pack_into('<I', h, 8, len(kern_new))
-struct.pack_into('<32x', h, 576)   # blank the id/hash; fastboot boot does not verify it
+    (ksz, kaddr, rsz, raddr,
+     ssz, saddr, tags, ps, hv, osv) = struct.unpack_from('<10I', img, 8)
+    cmdline_raw = img[64:576]
+    cmdline_txt = cmdline_raw.rstrip(b'\0').decode(errors='replace')
 
-blob = pad(bytes(h), ps) + pad(kern_new, ps) + pad(ramdisk, ps) + (pad(second, ps) if ssz else b'')
-with open(out, 'wb') as f:
-    f.write(blob)
-print(f"\n--- wrote {out}: {len(blob)} bytes")
-print(f"  ramdisk reused verbatim: {len(ramdisk)} bytes")
+    print("--- source: %s" % src)
+    print("  page_size      = %d" % ps)
+    print("  header_version = %d" % hv)
+    print("  kernel  %9d @ 0x%08x" % (ksz, kaddr))
+    print("  ramdisk %9d @ 0x%08x" % (rsz, raddr))
+    print("  second  %9d @ 0x%08x" % (ssz, saddr))
+    print("  tags              @ 0x%08x" % tags)
+    print("  cmdline = %r" % cmdline_txt)
+
+    # carve out the existing parts
+    off = (HDR + ps - 1) // ps * ps
+    off += (ksz + ps - 1) // ps * ps          # skip the old kernel
+    ramdisk = img[off:off + rsz]
+    off += (rsz + ps - 1) // ps * ps
+    second = img[off:off + ssz]
+
+    # new kernel blob = Image.gz with the DTB appended
+    k = rd(newk)
+    d = rd(dtb)
+    kern_new = k + d
+    print("")
+    print("--- new kernel blob")
+    print("  Image.gz       = %d" % len(k))
+    print("  DTB            = %d" % len(d))
+    print("  total          = %d  (old was %d, delta %+d)"
+          % (len(kern_new), ksz, len(kern_new) - ksz))
+
+    # rebuild the header: new kernel size, everything else identical
+    h = bytearray(img[:HDR])
+    struct.pack_into('<I', h, 8, len(kern_new))
+    struct.pack_into('<32x', h, 576)          # zero the id/hash
+
+    if new_cmdline is not None:
+        cb = new_cmdline.encode()
+        if len(cb) > 511:
+            sys.exit("cmdline too long: %d > 511" % len(cb))
+        h[64:576] = cb + b'\0' * (512 - len(cb))
+        print("")
+        print("--- cmdline REPLACED")
+        print("  old = %r" % cmdline_txt)
+        print("  new = %r" % new_cmdline)
+        for key in ('pmos_boot_uuid', 'pmos_root_uuid'):
+            if key in cmdline_txt and key not in new_cmdline:
+                print("  !! WARNING: %s dropped - root may not mount" % key)
+
+    blob = pad(bytes(h), ps) + pad(kern_new, ps) + pad(ramdisk, ps)
+    if ssz:
+        blob += pad(second, ps)
+
+    with open(out, 'wb') as f:
+        f.write(blob)
+
+    print("")
+    print("--- wrote %s: %d bytes" % (out, len(blob)))
+    print("  ramdisk reused verbatim: %d bytes" % len(ramdisk))
+
+
+if __name__ == '__main__':
+    main()

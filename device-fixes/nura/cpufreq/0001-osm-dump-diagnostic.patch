@@ -9,27 +9,28 @@ index 483f1c5..2aace6c 100644
 +obj-y += osm-dump.o
 diff --git a/drivers/soc/qcom/osm-dump.c b/drivers/soc/qcom/osm-dump.c
 new file mode 100644
-index 0000000..d815750
+index 0000000..9f3b541
 --- /dev/null
 +++ b/drivers/soc/qcom/osm-dump.c
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,102 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Temporary diagnostic for SDM660 (clover): dump the Operating State Manager
 + * register state at boot. STRICTLY READ-ONLY - no register is written.
 + *
-+ * Mainline qcom-cpufreq-hw is a read-only consumer of an OSM LUT that
-+ * firmware is expected to have programmed and enabled. On SDM660 the
-+ * downstream kernel programs the LUT itself, so before adding a cpufreq
-+ * driver we need to know what the bootloader actually left behind.
-+ *
-+ * Offsets from downstream clk-cpu-osm.c (LineageOS, sdm660).
++ * v2: the v1 dump hung the device with a black screen. Reading these
++ * registers may abort (the window can be XPU-protected or unclocked), and a
++ * hang at late_initcall is invisible. So this version announces every step
++ * BEFORE taking it and waits for the console, so the last line on screen names
++ * the exact access that died. It also reads ENABLE_REG first and walks the
++ * LUT only if that read survived.
 + */
 +
 +#include <linux/init.h>
 +#include <linux/io.h>
 +#include <linux/kernel.h>
 +#include <linux/printk.h>
++#include <linux/delay.h>
 +
 +#define OSM_PWRCL_BASE		0x179c0000	/* A53 "pwrcl"  */
 +#define OSM_PERFCL_BASE		0x179c2000	/* A73 "perfcl" */
@@ -42,52 +43,75 @@ index 0000000..d815750
 +#define OSM_VOLT_REG		0x1158
 +#define OSM_PERF_STATE_REG	0x1f10
 +
-+#define OSM_REG_SIZE		32	/* LUT row stride */
-+#define OSM_TABLE_SIZE		40	/* LUT rows       */
-+
++#define OSM_REG_SIZE		32
++#define OSM_TABLE_SIZE		40
 +#define XO_KHZ			19200
++
++/* say it, flush it, then do it - so a hang leaves its cause on screen */
++static void __init say(const char *what, u32 off)
++{
++	pr_emerg("osm-dump: ABOUT TO READ %s (+0x%04x)\n", what, off);
++	mdelay(30);	/* let the console drain before the risky access */
++}
 +
 +static void __init osm_dump_cluster(const char *name, phys_addr_t base)
 +{
 +	void __iomem *p;
-+	u32 enable, perf_state;
++	u32 enable, version;
 +	int i;
 +
++	pr_emerg("osm-dump: %s: ioremap(%pa, 0x%x)\n", name, &base, OSM_WIN_SIZE);
 +	p = ioremap(base, OSM_WIN_SIZE);
 +	if (!p) {
-+		pr_err("osm-dump: %s: ioremap(%pa) failed\n", name, &base);
++		pr_emerg("osm-dump: %s: ioremap FAILED\n", name);
 +		return;
 +	}
++	pr_emerg("osm-dump: %s: ioremap ok -> %p\n", name, p);
 +
++	say("VERSION", OSM_VERSION_REG);
++	version = readl_relaxed(p + OSM_VERSION_REG);
++	pr_emerg("osm-dump: %s: VERSION = 0x%08x  <-- survived the first read\n",
++		 name, version);
++
++	say("ENABLE", OSM_ENABLE_REG);
 +	enable = readl_relaxed(p + OSM_ENABLE_REG);
-+	perf_state = readl_relaxed(p + OSM_PERF_STATE_REG);
++	pr_emerg("osm-dump: %s: ENABLE = 0x%08x -> OSM %s\n", name, enable,
++		 (enable & 1) ? "ENABLED" : "DISABLED");
 +
-+	pr_info("osm-dump: %s base=%pa version=0x%08x enable=0x%08x (OSM %s) perf_state=0x%08x\n",
-+		name, &base, readl_relaxed(p + OSM_VERSION_REG), enable,
-+		(enable & 1) ? "ENABLED" : "disabled", perf_state);
++	say("PERF_STATE", OSM_PERF_STATE_REG);
++	pr_emerg("osm-dump: %s: PERF_STATE = 0x%08x\n", name,
++		 readl_relaxed(p + OSM_PERF_STATE_REG));
++
++	if (!(enable & 1)) {
++		pr_emerg("osm-dump: %s: OSM disabled - skipping LUT walk\n", name);
++		goto out;
++	}
 +
 +	for (i = 0; i < OSM_TABLE_SIZE; i++) {
 +		u32 off = i * OSM_REG_SIZE;
-+		u32 index = readl_relaxed(p + OSM_INDEX_REG + off);
-+		u32 freq = readl_relaxed(p + OSM_FREQ_REG + off);
-+		u32 volt = readl_relaxed(p + OSM_VOLT_REG + off);
-+		u32 lval = freq & 0xff;
-+		u32 src = (freq >> 30) & 0x3;
++		u32 freq, volt, lval, src;
 +
-+		pr_info("osm-dump: %s[%02d] index=0x%08x freq=0x%08x volt=0x%08x | src=%u lval=%3u -> %6u kHz, vc/uv=%u\n",
-+			name, i, index, freq, volt, src, lval,
-+			lval * XO_KHZ, volt & 0xfff);
++		freq = readl_relaxed(p + OSM_FREQ_REG + off);
++		volt = readl_relaxed(p + OSM_VOLT_REG + off);
++		lval = freq & 0xff;
++		src = (freq >> 30) & 0x3;
++
++		pr_emerg("osm-dump: %s[%02d] freq=0x%08x volt=0x%08x | src=%u lval=%3u -> %6u kHz, uv=%u\n",
++			 name, i, freq, volt, src, lval, lval * XO_KHZ,
++			 volt & 0xfff);
 +	}
 +
++out:
 +	iounmap(p);
++	pr_emerg("osm-dump: %s: done\n", name);
 +}
 +
 +static int __init osm_dump_init(void)
 +{
-+	pr_info("osm-dump: ==== SDM660 OSM state as left by the bootloader ====\n");
++	pr_emerg("osm-dump: ======== SDM660 OSM state (v2) ========\n");
 +	osm_dump_cluster("pwrcl-A53", OSM_PWRCL_BASE);
 +	osm_dump_cluster("perfcl-A73", OSM_PERFCL_BASE);
-+	pr_info("osm-dump: ==== end ====\n");
++	pr_emerg("osm-dump: ======== end - survived everything ========\n");
 +	return 0;
 +}
 +late_initcall(osm_dump_init);

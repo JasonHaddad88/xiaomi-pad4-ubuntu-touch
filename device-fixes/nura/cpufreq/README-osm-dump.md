@@ -61,3 +61,50 @@ hang during boot, recoverable by holding power.
 
 Delete the patch from `source=`, re-run `pmbootstrap checksum`, rebuild. It is
 a diagnostic and must not ship in an installed kernel.
+
+---
+
+## v1 hung the device. What changed in v2
+
+The first attempt booted to a **black screen** and never reached the network
+(a 6-minute LAN sweep found nothing). Two mistakes, one in the code and one
+in the test:
+
+1. **The test was blind.** The boot image kept the installed cmdline, which
+   starts `quiet splash`. `late_initcall` runs after the display driver but
+   before Phosh, so a hang there draws nothing at all — no console, no
+   splash, no panic text. There was no way to tell where it died, or even
+   whether the dump was the cause.
+2. **The dump took ~80 reads before saying anything useful.** If any single
+   access aborts, everything after it is lost.
+
+v2 fixes both:
+
+- The boot image is repacked with
+  `console=tty0 ignore_loglevel` **replacing** `quiet splash ...`, keeping
+  `pmos_boot_uuid`/`pmos_root_uuid`. Kernel messages now land on the panel.
+- Every message is `pr_emerg` (loglevel 0, always printed).
+- Each risky access is announced *before* it happens, with a 30 ms delay to
+  let the console drain, so the **last line on screen names the exact
+  register that killed it**.
+- `ENABLE_REG` is read first and the 40-row LUT walk only happens if the OSM
+  reports itself enabled — fewer accesses, and the headline answer arrives
+  before any bulk reading.
+
+### What the outcome will mean
+
+- Banner appears, then `ABOUT TO READ VERSION`, then nothing -> the OSM
+  window is not readable from the kernel at all (XPU-protected or
+  unclocked). That also rules out the small-patch route, because mainline
+  `qcom-cpufreq-hw` reads this same window.
+- Reads survive and `ENABLE` has bit 0 set with a real frequency ladder ->
+  the small patch is viable.
+- Boot hangs *before* the banner -> the dump is innocent and something else
+  is wrong with the test kernel.
+
+Verify the right code is in the image before flashing anything, rather than
+trusting that the patch applied:
+
+```sh
+zcat boot/vmlinuz | strings | grep -E "OSM state \(v2\)|survived the first read"
+```

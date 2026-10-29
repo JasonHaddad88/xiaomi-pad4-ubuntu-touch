@@ -37,35 +37,43 @@ cpu7 A53 Silver  1378.9 MHz
 | A53 Silver (pwrcl)  | cpu0, cpu5, cpu6, cpu7 | 1378 MHz | 1843.2 MHz | 75% |
 | A73 Gold   (perfcl) | cpu1-cpu4             |  598 MHz | 2457.6 MHz | **24%** |
 
-598 MHz is ~31 x 19.2 MHz, i.e. a low entry in the OSM table, not a
-derated maximum.
+Neither value is an exact multiple of the 19.2 MHz crystal (598.1 / 19.2 =
+31.15; 1378 / 19.2 = 71.8), so this data alone cannot map them to specific OSM
+table rows. (An earlier version said 598 MHz was "~31 x 19.2 MHz, a low entry
+in the OSM table". That was a guess and has been removed.)
+
+Why the result is credible despite being one method: cores in a cluster share
+one clock, so all four of each kind *should* read the same, and they do to
+within 0.2%. Random measurement error would scatter. And the A73s losing to
+the A53s was already seen independently in the earlier openssl RSA/MD5 runs.
 
 ## What this explains
 
-Three earlier observations were all one bug:
+1. **"The big cores are the slow ones."** An A73 does more work per clock than
+   an A53 (very roughly 1.3-2x, depending on the code), but at 598 vs 1378 MHz
+   it gets 2.3x fewer clocks, so it loses.
+2. **The capacity fix was the right workaround.** `cpu_capacity` reads 1024
+   for the A53s and 471 for the A73s, so the scheduler prefers the cores that
+   actually deliver today. (471 came from a benchmark ratio, not from these
+   clock numbers.)
+3. **The anemia itself.** Nothing was throttling or overheating. Mainline
+   SDM660 has no CPU frequency driver, so each cluster stays at whatever clock
+   the bootloader left it on.
 
-1. **"The big cores are the slow ones."** An A73 at 598 MHz is genuinely
-   slower than an A53 at 1378 MHz, despite the A73's ~1.5x higher IPC.
-   The benchmark was right; the hardware is misconfigured.
-2. **The capacity fix was correct as a workaround.** `cpu_capacity` now reads
-   1024 for the A53s and 471 for the A73s, so the scheduler prefers the cores
-   that actually deliver today. 471/1024 = 0.46, which matches
-   (0.598 x 1.5) / 1.378 = 0.65 in the right direction and confirms the
-   clusters are not interchangeable.
-3. **The anemia itself.** Nothing was throttling or overheating. The CPUs
-   were simply never told to go fast.
+## Size of the prize: a ceiling, not a promise
 
-## Size of the prize
+If both clusters ran at their rated maximum (A53 1843 MHz, A73 2458 MHz), and
+an A73 clock is worth ~1.5 A53 clocks (an assumption, not measured here):
 
-Treating an A53 cycle as 1.0 and an A73 cycle as ~1.5:
-
-| | today | with full OSM range | gain |
+| | today | at rated maximum | gain |
 |---|---|---|---|
-| single thread (best core) | 1.38 | 3.69 | **2.7x** |
-| all 8 cores | 9.1 | 22.1 | **2.4x** |
+| single thread (best core) | 1.38 | 3.69 | ~2.7x |
+| all 8 cores | 9.1 | 22.1 | ~2.4x |
 
-Single-thread is what makes Settings and app launches feel slow, so the
-~2.7x is the number that matters for the reported symptom.
+Two caveats. The 1.5 factor is a rule of thumb; the real figure depends on the
+workload. And rated clocks need matching voltages, which is exactly the
+unsolved OSM problem. Treat these as upper bounds. Single-thread speed is what
+makes Settings and app launches feel slow.
 
 ## Why no frequency scaling exists
 

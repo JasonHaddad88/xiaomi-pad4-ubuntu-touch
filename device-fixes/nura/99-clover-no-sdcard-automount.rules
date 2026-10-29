@@ -1,3 +1,12 @@
+# OBSOLETE: Ubuntu Touch only. DO NOT INSTALL ON NURA.
+#
+# Ubuntu Touch was replaced by Nura on internal storage on 2026-10-25. This
+# rule matches by kernel device name (mmcblk1*). Under Ubuntu Touch's 4.4
+# kernel mmcblk1 was the SD card. Under Nura's mainline kernel mmcblk1 is the
+# INTERNAL eMMC (the boot partition is mmcblk1p12), so on Nura this rule would
+# act on the internal disk. On Nura the SD card is protected by
+# udisks2-mount_options.conf, which matches on filesystem UUID instead.
+#
 # Install on UBUNTU TOUCH as /etc/udev/rules.d/99-clover-no-sdcard-automount.rules
 # (rootfs is read-only: sudo mount -o remount,rw / ... then remount,ro)
 #

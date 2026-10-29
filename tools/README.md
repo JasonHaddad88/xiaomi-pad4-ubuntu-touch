@@ -31,25 +31,36 @@ tar xzf ~/.local/var/pmbootstrap/packages/edge/aarch64/linux-postmarketos-qcom-s
 # boot/dtbs/qcom/sda660-xiaomi-clover.dtb  <- clover is the Wi-Fi-only SDA660
 ```
 
-## The id hash is not optional
+## The id hash
 
-The header's `id` field (offset 576, 20-byte SHA1) **is verified by clover's
-bootloader**:
+The header's `id` field (offset 576, 20-byte SHA1) is recomputed with
+mkbootimg's recipe:
 
 ```
 id = SHA1(kernel || le32(len(kernel)) || ramdisk || le32(len(ramdisk))
                  || second || le32(len(second)))
 ```
 
-An image with a zeroed id is accepted by fastboot -- `Sending... OKAY`,
-`Booting OKAY` -- and then fails **silently**: black screen, never reaches the
-network, no console, no panic. It is indistinguishable from a kernel hang.
+Clover's bootloader does **not** appear to check it. Ubuntu Touch's own
+header-v0 `boot.img` carries an id that does not match its contents, yet it
+booted from flash for weeks, and the Halium image booted via `fastboot boot`.
+The script recomputes it anyway because that costs nothing.
 
-This cost four boot cycles on 2026-10-25. Three diagnostic kernels "hung" and
-the kernel code was blamed and rewritten each time, when the real fault was
-this script zeroing the id behind a comment claiming fastboot did not check
-it. An untested assumption in a comment. What exposed it was finally booting
-a control kernel with no patch at all, which failed identically.
+An earlier version of this README claimed the opposite: that a zeroed id was
+why locally built kernels black-screened. That was refuted when the same
+kernel with a correct id failed identically.
+
+## Swapping only the kernel is not enough
+
+This script replaces the kernel but not the modules on the rootfs. This
+kernel config has `CONFIG_DEBUG_INFO_BTF_MODULES=y` and does not set
+`CONFIG_MODULE_ALLOW_BTF_MISMATCH`, so a kernel whose BTF differs from the one
+the installed modules were built against (different compiler point release,
+different config) **refuses every module**. The display (`DRM_MSM=m`) and
+Wi-Fi (`ath10k`) are modules, so the result is a live kernel with a black
+screen and no network. This is the leading explanation for the black screens
+on 2026-10-25, not yet proven on the device. For RAM tests, build the test
+kernel with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`.
 
 ## Validate changes offline, not on the device
 
@@ -63,14 +74,18 @@ cmp good.img /tmp/rt.img && echo IDENTICAL
 ```
 
 For clover's installed image that is md5 `62cbaf2f3e2d24b0d5322376c7e69931`.
-This test is free, needs no device, and catches exactly the bug above. Run it
+This test is free and needs no device. Run it
 after any change here.
 
 ## Reading the size report
 
 For a same-version kernel the blob total lands within a few KB of the
-original. Against `boot-INSTALLED-speakers+capfix.img` the delta was -1920
-bytes, entirely in the DTB -- which proved that image is the *stock* kernel
-carrying a *patched* DTB. So the speaker and capacity fixes live in the device
-tree, and a permanent kernel build must re-apply those DTB edits or it will
-silently lose the speakers.
+original. Use `--split` to see where a difference actually is. Against the
+installed image, the locally built r0 kernel differs by 1,659 bytes in
+`Image.gz`, and its stock DTB by 1,051 bytes (speaker nodes and capacity
+values). An earlier note here said a -1,920-byte delta was "entirely in the
+DTB"; that arithmetic was wrong, because both parts differed. The conclusion it
+supported still holds on other evidence (both pmaports trees carry no patches,
+and the speaker README documents the dtc edit-and-splice workflow): the
+speaker and capacity fixes live in the DTB, so a permanent kernel must carry
+that DTB or the speakers go silent.

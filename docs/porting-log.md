@@ -109,7 +109,7 @@ With both values set, the bootloader enumerates cleanly:
 
 ```
 $ fastboot devices
-891bc6d1     fastboot
+<serial>     fastboot
 $ fastboot getvar product
 product: clover
 $ fastboot boot boot.img

@@ -1,3 +1,24 @@
+> **STATUS 2026-10-29: read this first.** The v1-v3 sections below explain
+> the black screens first as the dump hanging the SoC, then as an invisible
+> console, and (in tools/) as a zeroed boot-image hash. **None of those was
+> shown to be the cause.** A control kernel built from the same tree, with no
+> patch and a correct hash, failed identically. Ubuntu Touch's own boot image
+> shows the bootloader doesn't verify the hash. No OSM register read has been
+> shown to hang anything; the dump may have run every time.
+>
+> Leading explanation, **not yet proven on the device**: the rootfs modules
+> were built against the installed r2 kernel, and this config has
+> `CONFIG_DEBUG_INFO_BTF_MODULES=y` without `CONFIG_MODULE_ALLOW_BTF_MISMATCH`.
+> A locally built kernel (clang 23.1.4 vs 23.1.3, slightly different config)
+> has different BTF, so it refuses every module, including the display
+> (`DRM_MSM=m`) and Wi-Fi (`ath10k`): a live kernel with a black screen and no
+> network. The refusal message, `failed to validate module [%s] BTF`, is in
+> the kernel binary.
+>
+> Test images and the order to run them: `docs/nura-kernel-bisect.md`.
+>
+> Everything below is kept as a record of what was tried.
+
 # Read-only OSM diagnostic kernel
 
 `0001-osm-dump-diagnostic.patch` adds `drivers/soc/qcom/osm-dump.c` (built

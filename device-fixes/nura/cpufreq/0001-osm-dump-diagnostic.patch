@@ -9,31 +9,23 @@ index 483f1c5..2aace6c 100644
 +obj-y += osm-dump.o
 diff --git a/drivers/soc/qcom/osm-dump.c b/drivers/soc/qcom/osm-dump.c
 new file mode 100644
-index 0000000..de0095d
+index 0000000..00b86ff
 --- /dev/null
 +++ b/drivers/soc/qcom/osm-dump.c
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,101 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Temporary diagnostic for SDM660 (clover): dump the Operating State Manager
 + * register state at boot. The register accesses are STRICTLY READ-ONLY.
 + *
-+ * Getting the output off the device is the hard part:
++ * v4: no deliberate panic. Earlier versions never produced output because
++ * the test kernels could not load the rootfs modules (BTF mismatch, see
++ * device-fixes/nura/cpufreq/README-osm-dump.md), so there was no display and
++ * no network. Built with CONFIG_MODULE_ALLOW_BTF_MISMATCH=y this kernel can
++ * finish booting, and the dump is read from dmesg over SSH.
 + *
-+ *  - The display driver is a module (CONFIG_DRM_MSM=m), so at late_initcall
-+ *    there is no framebuffer console. console=tty0 prints nowhere and a hang
-+ *    is completely invisible - which is how v1 and v2 wasted a boot each.
-+ *  - But clover reserves ramoops@9fe00000 with console-size=0x80000, and the
-+ *    kernel has PSTORE_CONSOLE=y, so every printk is already being recorded
-+ *    into persistent DRAM.
-+ *  - The catch: escaping a hang needs a 10-second power-button hold, and that
-+ *    drops DRAM power and wipes precisely the log we want.
-+ *
-+ * So this version ends in a deliberate panic(). With panic=10 on the cmdline
-+ * the kernel resets itself warm, DRAM keeps its contents, the device boots
-+ * from flash again on its own, and the whole dump is waiting in
-+ * /sys/fs/pstore. If a register access aborts before that, the resulting oops
-+ * is captured by the same mechanism.
++ * Each access is announced first, so if a read ever does wedge the SoC the
++ * last line in ramoops (/sys/fs/pstore, after a WARM reset) names it.
 + *
 + * Offsets from downstream clk-cpu-osm.c (LineageOS, sdm660).
 + */
@@ -58,7 +50,6 @@ index 0000000..de0095d
 +#define OSM_TABLE_SIZE		40
 +#define XO_KHZ			19200
 +
-+/* say it, let the console drain, then risk the access */
 +static void __init say(const char *what, u32 off)
 +{
 +	pr_emerg("osm-dump: ABOUT TO READ %s (+0x%04x)\n", what, off);
@@ -116,18 +107,10 @@ index 0000000..de0095d
 +
 +static int __init osm_dump_init(void)
 +{
-+	pr_emerg("osm-dump: ======== SDM660 OSM state (v3) ========\n");
++	pr_emerg("osm-dump: ======== SDM660 OSM state (v4) ========\n");
 +	osm_dump_cluster("pwrcl-A53", OSM_PWRCL_BASE);
 +	osm_dump_cluster("perfcl-A73", OSM_PERFCL_BASE);
 +	pr_emerg("osm-dump: ======== all reads survived ========\n");
-+
-+	/*
-+	 * Deliberate. panic=10 then resets the SoC warm, which keeps DRAM
-+	 * powered so the ramoops console buffer holding everything above
-+	 * survives into /sys/fs/pstore. Escaping by power button would wipe it.
-+	 */
-+	mdelay(200);
-+	panic("osm-dump: finished - rebooting warm to preserve ramoops");
 +	return 0;
 +}
 +late_initcall(osm_dump_init);

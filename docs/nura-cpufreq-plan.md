@@ -44,13 +44,15 @@
 >         data->per_core_dcvs = true;
 > ```
 >
-> Also confirmed against the mainline LUT decode: `LUT_SRC = GENMASK(31,30)`
-> and `freq = xo_rate * lval` only when `src != 0`. Downstream SDM660
-> `freq_val` words decode with `lval * 19.2 MHz` giving exactly the rated
-> frequencies (`0x4000f` -> 15 -> 288 MHz; `0x404003a` -> 58 -> 1113.6 MHz),
-> so the L-value encoding matches — but **`src` reads 0 in those words**,
-> which would make mainline report `cpu_hw_rate` for every row. The dump
-> will show what the live hardware actually holds in bits 31:30.
+> **Retracted 2026-10-29.** An earlier version of this paragraph quoted two
+> "downstream SDM660 `freq_val` words" (`0x4000f`, `0x404003a`) and drew a
+> conclusion from their `src` bits. Neither value appears anywhere in the
+> downstream source: `clk-cpu-osm-660.c` takes `freq_val` from
+> `entry[i].freq_data`, which it parses from the device tree at runtime. The
+> claim had no basis. What *is* verified: mainline decodes
+> `LUT_SRC = GENMASK(31,30)` and computes `freq = xo_rate * lval` only when
+> `src != 0`, falling back to `cpu_hw_rate` otherwise. What the live SDM660
+> table holds in those bits is unknown until the dump actually runs.
 
 ---
 

@@ -40,3 +40,7 @@ Desktop.ini
 
 # device backups (partition images, device-specific; keep local)
 backups/
+
+# Python bytecode
+__pycache__/
+*.pyc

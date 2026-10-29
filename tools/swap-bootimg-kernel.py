@@ -9,14 +9,17 @@ The ramdisk, load addresses and page size are copied verbatim from <src.img>.
 The DTB is appended to the gzipped kernel, which is what clover needs
 (deviceinfo_append_dtb="true").
 
-The header `id` field is a SHA1 over the image contents and it **must be
-recomputed** -- clover's bootloader checks it. Zeroing it produces an image
-that fastboot accepts ("Booting OKAY") and that then silently fails to boot:
-black screen, no console, nothing on the network. That cost several wasted
-boot cycles, so do not "optimise" it away again.
+The header `id` field (a SHA1 over the contents) is recomputed with
+mkbootimg's recipe. Clover's bootloader does not appear to verify it (see
+tools/README.md), but a correct id costs nothing:
 
     id = SHA1(kernel || le32(ksize) || ramdisk || le32(rsize)
                      || second || le32(ssize))
+
+This swaps the kernel only, not the rootfs modules. With BTF module
+validation enabled, a kernel whose BTF differs from the installed modules'
+refuses them all (no display, no Wi-Fi). Build RAM-test kernels with
+CONFIG_MODULE_ALLOW_BTF_MISMATCH=y.
 
 Pass [new-cmdline] to replace the kernel command line. Keep the
 pmos_boot_uuid and pmos_root_uuid values from the original or the initramfs

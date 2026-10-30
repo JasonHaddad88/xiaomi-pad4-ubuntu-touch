@@ -61,15 +61,15 @@
 >         data->per_core_dcvs = true;
 > ```
 >
-> **Retracted 2026-10-29.** An earlier version of this paragraph quoted two
-> "downstream SDM660 `freq_val` words" (`0x4000f`, `0x404003a`) and drew a
-> conclusion from their `src` bits. Neither value appears anywhere in the
-> downstream source: `clk-cpu-osm-660.c` takes `freq_val` from
-> `entry[i].freq_data`, which it parses from the device tree at runtime. The
-> claim had no basis. What *is* verified: mainline decodes
-> `LUT_SRC = GENMASK(31,30)` and computes `freq = xo_rate * lval` only when
-> `src != 0`, falling back to `cpu_hw_rate` otherwise. What the live SDM660
-> table holds in those bits is unknown until the dump actually runs.
+> **Correction to a retraction (2026-10-30).** On 2026-10-29 this note said
+> the `freq_val` words `0x4000f` and `0x404003a` "do not exist" and the claim
+> "had no basis". That retraction was itself wrong: I had only searched the C
+> source. The words come from the **device tree**. Clover's own Android table
+> `qcom,pwrcl-speedbin0-v0` has `0x0004000f` on the 300 MHz row and
+> `0x0404003a` on the 1113.6 MHz row, and both decode as `lval * 19.2 MHz`
+> (15 -> 288, 58 -> 1113.6) with `src` (bits 31:30) = 0. That part of the
+> original claim stands. It is moot for now anyway: OSM is off on this
+> device, so mainline `qcom-cpufreq-hw` is not the path.
 
 ---
 

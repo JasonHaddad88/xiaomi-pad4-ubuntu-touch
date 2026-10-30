@@ -38,7 +38,8 @@
 
 # Read-only OSM diagnostic kernel
 
-`0001-osm-dump-diagnostic.patch` adds `drivers/soc/qcom/osm-dump.c` (built
+`0001-osm-dump-diagnostic.patch` (now v5: OSM summary plus the two CPRh voltage
+controllers, read-only; see docs/nura-kernel-bisect.md, T6) adds `drivers/soc/qcom/osm-dump.c` (built
 unconditionally via `obj-y`) and a `late_initcall` that dumps SDM660's
 Operating State Manager state to dmesg at boot.
 

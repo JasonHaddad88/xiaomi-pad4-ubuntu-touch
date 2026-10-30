@@ -133,3 +133,42 @@ came back on the installed `#3` kernel with no test marker. Full logs:
 
 **Rule for any future RAM test:** build the test kernel with
 `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`, or the rootfs modules will be refused.
+
+## T6: read-only CPRh voltage-controller dump (prepared 2026-10-30, not run yet)
+
+`T6-LOCAL-kernel-BTFALLOW+OSM-CPRh-DUMPv5+installed-dtb.img`, md5
+`c898dc52c96be883aea761bb6a0f8ca6`. It is T5's proven kernel (BTF mismatch
+allowed, installed DTB, `nura_bisect=6`) with the dump extended to the two
+CPRh controllers that drive the CPU rails. Purpose: decide whether any
+frequency increase could be voltage-safe without porting CPRh programming
+(see docs/nura-pr239-review.md).
+
+Still strictly read-only: the source has zero `writel` calls, and every
+access is announced before it happens. For each controller
+(`0x179c8000` A53, `0x179c4000` A73, register map from clover's downstream
+`cpr3-regulator.c`) it reports:
+
+- `CPR_CTL` bit 0: is the CPR loop running at all
+- `HW_CLOSED_LOOP`: 0 means hardware closed loop is on
+- `CPRH_CTL`: is the OSM interface enabled, plus the base voltage and step
+  size programmed into the hardware
+- `CPRH_STATUS`: current corner and last voltage
+- all 40 `CPRH_REG_CORNER` entries, decoded with clover's DT units (base
+  400 mV, step 4 mV) into start and floor voltages
+
+How to read the result:
+
+| finding | meaning |
+|---|---|
+| CPR loop off, corner table empty | nobody controls the rail beyond its boot voltage, so raising clocks without porting CPRh is unsafe |
+| loop on, OSM interface enabled, table filled | the firmware runs CPRh, so OSM corner requests would be honoured; a TZ-correct OSM driver might suffice |
+| something in between | read the values before deciding anything |
+
+After boot, also run (root):
+
+```sh
+dmesg | grep osm-dump
+cat /sys/kernel/debug/regulator/regulator_summary   # look for the APC / CPU rails
+```
+
+Then `sudo systemctl reboot` returns to the installed kernel.

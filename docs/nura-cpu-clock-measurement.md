@@ -55,7 +55,10 @@ the A53s was already seen independently in the earlier openssl RSA/MD5 runs.
 2. **The capacity fix was the right workaround.** `cpu_capacity` reads 1024
    for the A53s and 471 for the A73s, so the scheduler prefers the cores that
    actually deliver today. (471 came from a benchmark ratio, not from these
-   clock numbers.)
+   clock numbers.) **By design the A73s are the fast cores** (rated 2458 MHz
+   vs 1843 MHz, and more work per clock). This inversion exists only because
+   they are stuck at 598 MHz. If the clocks are ever fixed, this capacity
+   fix must be reverted, or it will send work to the slow cores.
 3. **The anemia itself.** Nothing was throttling or overheating. Mainline
    SDM660 has no CPU frequency driver, so each cluster stays at whatever clock
    the bootloader left it on.
@@ -123,3 +126,22 @@ unprogrammed LUT, requesting an index selects an undefined voltage.
   which is what downstream `clk-cpu-osm.c` does. That is a large job, and
   setting voltages wrongly can crash or damage the chip.
 
+
+## Which cores are which (verified 2026-10-30)
+
+Not taken from labels. Three independent sources agree:
+
+| Linux CPU | MPIDR cluster | MIDR part | Android OSM cluster | rated max | measured |
+|---|---|---|---|---|---|
+| CPU1-4 | 1 (`0x100-0x103`) | `0x800` Kryo 260 Gold (A73-class) | `perfcl`, cluster_num 1 | 2457.6 MHz | **598 MHz** |
+| CPU0, 5-7 | 0 (`0x0-0x3`) | `0x801` Kryo 260 Silver (A53-class) | `pwrcl`, cluster_num 0 | 1843.2 MHz | 1378 MHz |
+
+MIDR and MPIDR come from the boot log (`Booted secondary processor 0x100
+[0x51af8002]`). The rated maxima come from the Android device tree tables
+`qcom,perfcl-speedbin0-v0` (300 ... 2457 MHz) and `qcom,pwrcl-speedbin0-v0`
+(300 ... 1843 MHz). Linux numbers the Gold cores 1-4 because the boot CPU is
+a Silver core.
+
+Neither measured clock matches any row of those tables (598 is not in the
+perfcl list; 1378 is not in the pwrcl list). That fits the OSM being off: the
+clocks are set directly at boot, not taken from the OSM table.

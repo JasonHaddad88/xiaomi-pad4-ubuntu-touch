@@ -226,3 +226,46 @@ and the A73 cluster finally outperforming the A53 cluster on RSA/MD5.
 Delete both workarounds: the `capacity-dmips-mhz` correction in the DTB
 ([`nura-performance.md`](nura-performance.md)) and the GPU `performance` governor pin, since
 the A73 cluster would then be genuinely the fastest and the GPU could scale on demand again.
+
+---
+
+## What other SDM630/636/660 ports do (checked 2026-10-30)
+
+- **Android / LineageOS:** the downstream kernel programs OSM and CPRh itself
+  (`clk-cpu-osm.c`), so clocks scale fully. Clover's Android tables:
+  `pwrcl` 300-1843 MHz, `perfcl` 300-2457 MHz.
+- **Mainline (kernel.org):** AngeloGioacchino Del Regno posted "cpufreq-qcom-hw:
+  Implement full OSM programming" for MSM8998 and SDM630/636/660 with CPRh,
+  v1-v6 between January and July 2021. Its cover letter states the bootloader
+  does not set up OSM or CPRh on these SoCs, which matches our ENABLE = 0
+  reading. **It was never merged.** The 7.0.14-sdm660 tree has no OSM
+  programming code in `qcom-cpufreq-hw.c`, and `cpufreq-dt-platdev.c` blocks
+  `qcom,msm8998` but has no sdm630/636/660 entries. So every mainline SDM660
+  port runs at fixed bootloader clocks, as this one does.
+- **sdm660-mainline PR #239** ("clk: qcom: add SDM660-Family CPU OSM driver",
+  glavakartela, opened 2026-10-09 against `qcom-sdm660-7.2.y`, open and
+  unreviewed). It programs OSM directly: LUT rows, sequencer, mem-acc map,
+  APM threshold, optional ACD. Voltages are fixed per-corner values from the DT
+  (`qcom,{pwrcl,perfcl}-corner-uv`), which the author calls CPR ceilings,
+  "conservative (slightly high)". There is no closed-loop CPRh. Tested only on
+  SDM636 (whyred). On SDM660 (Xiaomi Note 3, "jason"), the cpufreq files
+  appeared and dmesg was eventually clean, but `7zz b` scored the same at
+  maximum and minimum frequency. SDM630/660 DT tables were added on
+  2026-10-11; no test result for them yet. That tester's devmem reads of
+  `0x179C1004` / `0x179C3004` returned 1 with the driver loaded. These are the
+  same ENABLE registers our dump read as 0 without it, so the register map
+  matches ours.
+- **HiBy RS6** (an SDM660 audio player, github.com/noas-slopware/linux-hiby-rs6)
+  carries Del Regno's and Giuseppe Maggio's CPR3/CPRh + OSM-aware cpufreq-hw
+  code forward onto `qcom-sdm660-7.2.y`. Its README says it is not recorded
+  whether this was verified on the unit.
+
+**Implication:** writing a driver from the downstream source is not the
+sensible next step. Testing PR #239 on clover is, after first checking its
+voltage tables against clover's own Android tables, offline. Neither existing
+effort is proven on an SDM660 yet.
+
+Sources: https://github.com/sdm660-mainline/linux/pull/239 ,
+https://lwn.net/Articles/843577/ ,
+https://lists.sr.ht/~postmarketos/upstreaming/<20210701105730.322718-1-angelogioacchino.delregno@somainline.org> ,
+https://github.com/noas-slopware/linux-hiby-rs6

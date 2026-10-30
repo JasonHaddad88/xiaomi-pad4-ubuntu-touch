@@ -1,7 +1,7 @@
 From 1fe6b3c1dc4cf6fe802e632d972fcb096f8dcd29 Mon Sep 17 00:00:00 2001
 From: port <a@b>
 Date: Fri, 30 Oct 2026 14:52:11 +0200
-Subject: [PATCH 22/23] clover test: close both bring-up gates by default
+Subject: [PATCH 22/24] clover test: close both bring-up gates by default
 
 Reverts HiBy 0013's 'fully open' defaults for test kernels. With both
 at 0 a boot without explicit qcom_cpufreq_hw.osm_setup_stop= and

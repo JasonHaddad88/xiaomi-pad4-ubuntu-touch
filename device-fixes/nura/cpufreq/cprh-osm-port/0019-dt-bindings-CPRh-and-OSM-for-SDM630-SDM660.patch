@@ -1,7 +1,7 @@
 From 8e6b2dd4f5649df0007c28cc46b47190bea9196d Mon Sep 17 00:00:00 2001
 From: Noa Himesaka <himesaka@noa.codes>
 Date: Wed, 21 Oct 2026 18:25:00 +0900
-Subject: [PATCH 19/23] dt-bindings: CPRh and OSM for SDM630/SDM660
+Subject: [PATCH 19/24] dt-bindings: CPRh and OSM for SDM630/SDM660
 
 - power/avs/qcom,cprh.yaml: the CPRh controller of MSM8998 and
   SDM630/660, with the fuse cells the cpr3 driver reads. Based on

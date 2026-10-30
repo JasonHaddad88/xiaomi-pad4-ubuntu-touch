@@ -1,7 +1,7 @@
 From 4fabbed77944300a9c4dfb713f76dac5c9a5307d Mon Sep 17 00:00:00 2001
 From: Giuseppe Maggio <jertlok@proton.me>
 Date: Tue, 18 Aug 2026 16:30:40 +0200
-Subject: [PATCH 12/23] cpufreq: qcom-hw: msm8998: program the APM threshold
+Subject: [PATCH 12/24] cpufreq: qcom-hw: msm8998: program the APM threshold
  corner in SEQ_REG1
 
 On MSM8998v2 the OSM sequencer takes the Array Power Mux threshold

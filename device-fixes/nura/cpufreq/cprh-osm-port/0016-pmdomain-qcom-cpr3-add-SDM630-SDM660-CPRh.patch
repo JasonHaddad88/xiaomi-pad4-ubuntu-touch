@@ -1,7 +1,7 @@
 From eb29b30b9af6ae04b5454309ef1e4ca9f448446f Mon Sep 17 00:00:00 2001
 From: Noa Himesaka <himesaka@noa.codes>
 Date: Wed, 21 Oct 2026 18:25:00 +0900
-Subject: [PATCH 16/23] pmdomain: qcom: cpr3: add SDM630/SDM660 CPRh
+Subject: [PATCH 16/24] pmdomain: qcom: cpr3: add SDM630/SDM660 CPRh
 
 Add the SDM630/660 CPRh data: two threads (power and performance
 cluster), their fuse layout, corner voltages and scaling factors, from

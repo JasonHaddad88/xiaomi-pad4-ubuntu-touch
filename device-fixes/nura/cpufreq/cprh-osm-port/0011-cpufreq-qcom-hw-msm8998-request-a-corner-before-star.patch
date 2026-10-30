@@ -1,7 +1,7 @@
 From bb48a1c3557925a6e056f4e90838a36bc28c8963 Mon Sep 17 00:00:00 2001
 From: Giuseppe Maggio <jertlok@proton.me>
 Date: Mon, 10 Aug 2026 17:09:11 +0200
-Subject: [PATCH 11/23] cpufreq: qcom-hw: msm8998: request a corner before
+Subject: [PATCH 11/24] cpufreq: qcom-hw: msm8998: request a corner before
  starting the OSM
 
 The OSM is started with whatever the boot chain left in the performance

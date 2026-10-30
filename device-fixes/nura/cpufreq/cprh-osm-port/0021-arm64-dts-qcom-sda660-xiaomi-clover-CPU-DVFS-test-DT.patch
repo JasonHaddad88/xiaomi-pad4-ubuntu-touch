@@ -1,7 +1,7 @@
 From fce097e081526abdc41a58cf81148ddcc2e8b5e7 Mon Sep 17 00:00:00 2001
 From: port <a@b>
 Date: Fri, 30 Oct 2026 14:51:23 +0200
-Subject: [PATCH 21/23] arm64: dts: qcom: sda660-xiaomi-clover: CPU DVFS test
+Subject: [PATCH 21/24] arm64: dts: qcom: sda660-xiaomi-clover: CPU DVFS test
  DTBs, one per speed bin
 
 sdm660-cprh-osm.dtsi carries the CPU-DVFS hunks of HiBy patch 0041

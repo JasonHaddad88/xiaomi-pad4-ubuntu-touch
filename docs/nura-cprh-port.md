@@ -138,3 +138,67 @@ md5 `99cd8f17bd614c449576ce193b5c97c8`. Gates `cprh_init_stop=2`,
 That prints each fuse corner's floor/ceiling/target, each CPU frequency's
 corner, and (new) `speed bin N, CPR fusing revision M`. Still no register
 writes.
+
+## T8 result (2026-10-30): clover is speed bin 1; its voltages, computed from its own fuses
+
+Zero writes, as designed: `cprh-init: thread N phase 0/1/2 ok`, then
+`osm-setup: step 1 ok (cpr-corners)`, then a clean `-ECANCELED`.
+
+```
+qcom-cpr3 179c8000.power-controller: speed bin 1, CPR fusing revision 2
+```
+
+**Speed bin 1: A73 top 2208 MHz, A53 top 1843.2 MHz.** Use the
+`sda660-xiaomi-clover-cpufreq-bin1` DTB.
+
+Per-chip fuse corners `[floor target ceiling]` (uV):
+
+| cluster | FC0 | FC1 | FC2 | FC3 | FC4 |
+|---|---|---|---|---|---|
+| A53 | 588/612/724 | 596/648/724 | 652/696/788 | 712/800/868 | 844/932/1068 |
+| A73 | 596/692/724 | 652/748/788 | 712/840/868 | 784/940/988 | 844/960/1068 |
+
+Voltage per CPU frequency, as the OSM LUT would get it:
+
+| A53 MHz | 300 | 633.6 | 902.4 | 1113.6 | 1401.6 | 1536 | 1747.2 | 1843.2 |
+|---|---|---|---|---|---|---|---|---|
+| mV | 612 | 612 | 648 | 696 | 800 | 844 | 904 | 932 |
+
+| A73 MHz | 300 | 1113.6 | 1401.6 | 1747.2 | 1958.4 | 2150.4 | 2208 |
+|---|---|---|---|---|---|---|---|
+| mV | 692 | 692 | 748 | 840 | 896 | 940 | 960 |
+
+Every target is inside its fuse corner, voltages rise monotonically, the APM
+corner lands at 872 mV as clover's Android DT specifies, and the LUT words
+built in memory equal the simulated ones (e.g. `[3] freq=0x404003a
+volt=0x302b8` = 1113.6 MHz at 696 mV). Full log:
+`backups/cprh-port-2026-10-30/T8-boot-log.txt`.
+
+## Gate bug found and fixed before T9
+
+On SoCs without ACD (SDM630/660), `qcom_cpufreq_hw_acd_init()` returned 0
+**before** its step 8-10 checks, so `osm_setup_stop=8..10` fell through to
+the PERF_STATE and **OSM enable** writes and only stopped at step 11. The
+gate's own documentation ("any N below 11 leaves the OSM disabled") was false
+on clover. Fixed by checking step 10 in the no-ACD path too. Found by reading
+the code before building T9, not by booting it.
+
+## Test kernel now defaults to the powersave governor
+
+Built-in `powersave`/`userspace` governors, with `powersave` as default (test
+builds only). The governor modules on the rootfs aren't available when the
+built-in cpufreq driver registers, so a cmdline `cpufreq.default_governor=`
+would silently fall back to schedutil, which jumps straight to full speed.
+With powersave, a boot that enables the OSM holds every CPU at 300 MHz until
+the speed is raised by hand.
+
+## Next
+
+- **T9** `T9-cprh4-osm10-bin1-programmed-OSM-OFF.img`, md5
+  `45dbb329149093fc3e4f2a79b56de867`: CPRh corner table written, LUT,
+  TrustZone sequencer, DCVS, timers and FSMs programmed; OSM stays off.
+  Tests that every write is accepted.
+- **T10** `T10-cprh4-osm12-bin1-FULL-powersave.img`, md5
+  `27725950c9ffeba68c0b81a7c3acaeaa`: full sequence, all CPUs at 300 MHz.
+  Then step each frequency by hand with the userspace governor, measuring
+  the real clock (dependent-add method) and checking stability at each step.

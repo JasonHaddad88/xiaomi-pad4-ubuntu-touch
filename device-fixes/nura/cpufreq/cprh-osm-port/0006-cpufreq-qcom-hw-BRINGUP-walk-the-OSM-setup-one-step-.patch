@@ -1,7 +1,7 @@
 From 74e97e8e2f7154c0e6b721d93e2310c17dcbfc1c Mon Sep 17 00:00:00 2001
 From: Giuseppe Maggio <jertlok@proton.me>
 Date: Sun, 9 Aug 2026 19:02:09 +0200
-Subject: [PATCH 06/23] cpufreq: qcom-hw: [BRINGUP] walk the OSM setup one step
+Subject: [PATCH 06/24] cpufreq: qcom-hw: [BRINGUP] walk the OSM setup one step
  at a time
 
 DO NOT MERGE.  This is an instrument, not a feature, and violates the

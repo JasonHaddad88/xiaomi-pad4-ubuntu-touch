@@ -1,7 +1,7 @@
 From d4f3f9dc013c449519a8078a8d5c12799f83b7ce Mon Sep 17 00:00:00 2001
 From: port <a@b>
 Date: Fri, 30 Oct 2026 17:45:25 +0200
-Subject: [PATCH 23/23] clover test: log the speed bin; block qcom,sda660 in
+Subject: [PATCH 23/24] clover test: log the speed bin; block qcom,sda660 in
  cpufreq-dt-platdev
 
 The CPR3 driver reads cpr_speed_bin and cpr_fuse_revision through nvmem

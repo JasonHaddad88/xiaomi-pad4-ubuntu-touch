@@ -1,0 +1,41 @@
+From a461e65e26e10287ca3d817786290be26bcf0127 Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Fri, 30 Oct 2026 18:03:07 +0200
+Subject: [PATCH 24/24] cpufreq: qcom-hw: honour the ACD bring-up gate steps on
+ SoCs without ACD
+
+qcom_cpufreq_hw_acd_init() returned 0 before its step 8-10 checks when
+the SoC has no ACD region (SDM630/660). The caller then wrote PERF_STATE
+and the OSM enable bit and only stopped at the step 11 check, so
+osm_setup_stop=8..10 enabled the OSM on SDM660, contrary to the gate's
+documentation. Stop at step 10 in the no-ACD path as well.
+---
+ drivers/cpufreq/qcom-cpufreq-hw.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/cpufreq/qcom-cpufreq-hw.c b/drivers/cpufreq/qcom-cpufreq-hw.c
+index 4a4856668..6ba798a82 100644
+--- a/drivers/cpufreq/qcom-cpufreq-hw.c
++++ b/drivers/cpufreq/qcom-cpufreq-hw.c
+@@ -816,9 +816,17 @@ static int qcom_cpufreq_hw_acd_init(struct device *cpu_dev,
+ 
+ 	snprintf(acd_resname, sizeof(acd_resname), "osm-acd%d", index);
+ 
+-	/* ACD is optional (SDM630/660 have none): no region, nothing to do */
++	/*
++	 * ACD is optional (SDM630/660 have none): no region, nothing to do.
++	 * Still honour the ACD steps of the bring-up gate. Returning 0 here
++	 * made osm_setup_stop=8..10 fall through to the OSM enable write on
++	 * SoCs without ACD, so "any N below 11 leaves the OSM disabled" was
++	 * false on SDM660.
++	 */
+ 	if (!platform_get_resource_byname(pdev, IORESOURCE_MEM, acd_resname)) {
+ 		dev_vdbg(cpu_dev, "Skipping ACD initialization.\n");
++		if (qcom_cpufreq_osm_stop_after(cpu_dev, index, 10, "acd-none"))
++			return -ECANCELED;
+ 		return 0;
+ 	}
+ 
+-- 
+2.53.0
+

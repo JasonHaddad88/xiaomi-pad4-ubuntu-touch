@@ -1,7 +1,7 @@
 From f491264ee51dfb2156183d10090ac7538d8a59eb Mon Sep 17 00:00:00 2001
 From: Noa Himesaka <himesaka@noa.codes>
 Date: Wed, 21 Oct 2026 18:25:00 +0900
-Subject: [PATCH 17/23] cpufreq: qcom-hw: add SDM630/SDM660 OSM programming
+Subject: [PATCH 17/24] cpufreq: qcom-hw: add SDM630/SDM660 OSM programming
 
 Add qcom,sdm660-cpufreq-hw on top of the CPRh aware OSM programming:
 per-SoC power-down FSM enables and CC_ZERO behaviour (all six FSMs on,

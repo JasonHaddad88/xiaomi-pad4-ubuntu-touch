@@ -261,3 +261,78 @@ gives), just slow. Log: `backups/cprh-port-2026-10-30/T10-dmesg.txt`.
 `1658c07cf1bb5b24e324e35204607f90`. Same kernel and DTB as T10, only
 `qcom_cpr3.cprh_init_stop=5`. Expect: step 12 `cpr-loop` ok, cpufreq policies
 registered with the powersave governor at 300 MHz. Then raise the speed by hand.
+
+## T11 result (2026-10-30): CPU frequency scaling works on clover
+
+Gates `cprh_init_stop=5`, `osm_setup_stop=12`, bin-1 DTB, powersave default.
+`osm-setup: ... step 12 ok (cpr-loop)` on both clusters, and **no errors
+from the CPR or OSM drivers at any point** (boot, stepping, stress).
+
+```
+policy0 (Silver A53, cpus 0 5 6 7): 300 633.6 902.4 1113.6 1401.6 1536 1747.2 1843.2 MHz
+policy1 (Gold   A73, cpus 1 2 3 4): 300 1113.6 1401.6 1747.2 1958.4 2150.4 2208 MHz
+```
+
+### Every frequency, set by hand, with all four cores of the cluster loaded
+
+Measured with the dependent-add chain timed in **thread CPU time** (so
+preemption by other tasks doesn't count):
+
+| Gold set (MHz) | 1113 | 1401 | 1747 | 1958 | 2150 | 2208 |
+|---|---|---|---|---|---|---|
+| measured, 4 cores | 945-1110 | 1398-1399 | 1744 | 1954-1955 | 2146-2147 | **2204-2205** |
+
+| Silver set (MHz) | 633 | 902 | 1113 | 1401 | 1536 | 1747 | 1843 |
+|---|---|---|---|---|---|---|---|
+| measured, 4 cores | 629-633 | 898-902 | 1109-1113 | 1397-1401 | 1531-1536 | 1742-1747 | **1838-1843** |
+
+A first Silver pass timed in wall-clock time read low (1500-1530 at 1843)
+because Gold was parked at 300 MHz and the system's background work shared
+the Silver cores with the test. Re-measured in thread CPU time, each thread
+got 99-100% of its core and every step lands within 0.3%.
+
+### 60 s, all 8 cores at maximum together
+
+Clocks held (final readings: Silver 1843, Gold 2207 MHz on every core), peak
+68 C (`cpu3`/`pwr-cluster`), back to ~59 C right after. No throttling, no
+errors.
+
+### schedutil (normal automatic scaling)
+
+Idle: Gold 300 MHz. One busy Gold core: the cluster goes to 2208 MHz within
+0.5 s. Load ends: back to 300 MHz. Silver idled at 1401 MHz carrying the
+desktop.
+
+### Before and after, same benchmarks, same cores
+
+| | before (fixed boot clocks) | now | |
+|---|---|---|---|
+| Gold A73 clock | 598 MHz | 2204 MHz | 3.69x |
+| Gold RSA-2048 sign | 64.9/s | **239.3/s** | **3.69x** |
+| Gold MD5 | 115,800k | **425,604k** | **3.68x** |
+| Silver A53 clock | 1378 MHz | 1843 MHz | 1.34x |
+| Silver RSA-2048 sign | 127.4/s | 169.9/s | 1.33x |
+| Silver MD5 | 198,246k | 264,065k | 1.33x |
+
+The cluster inversion is gone: Gold is now 1.4-1.6x faster than Silver per
+core, as designed. The `cpu_capacity` workaround (Silver 1024, Gold 471) is
+now **wrong** and must be reverted in any permanent kernel; the stock DTB
+values (Gold 1024, Silver 640) used by these test images are already
+correct.
+
+Logs: `backups/cprh-port-2026-10-30/T11-dmesg.txt`,
+`T11-stepping-stress.txt` (not in git; the dmesg contains the serial).
+
+## Not yet permanent
+
+Everything above ran from RAM via `fastboot boot`. The installed system
+still boots its own kernel at the old fixed clocks. Making it permanent
+needs, in order:
+
+1. a fresh rootfs backup (the existing one is from install day);
+2. a release kernel: gates open by default, schedutil as default, no dyndbg,
+   built-in drivers kept, installed **with its own modules** (so no
+   `ALLOW_BTF_MISMATCH` dependency), pkgrel above the installed r2;
+3. clover's bin-1 DTB with the TAS2557 speaker patch re-applied and the
+   capacity workaround dropped;
+4. the current boot image kept as the fallback.

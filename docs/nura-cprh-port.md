@@ -202,3 +202,33 @@ the speed is raised by hand.
   `27725950c9ffeba68c0b81a7c3acaeaa`: full sequence, all CPUs at 300 MHz.
   Then step each frequency by hand with the userspace governor, measuring
   the real clock (dependent-add method) and checking stability at each step.
+
+## T9 result (2026-10-30): everything programmed and accepted, OSM stayed off
+
+Gates `cprh_init_stop=4`, `osm_setup_stop=10`. On both clusters:
+
+- CPRh phases 0-4 `ok`: CPR registers and the full corner table written
+  (e.g. A53 `steps [3]: open-loop 74, floor 64` = 400+74x4 = 696 mV open
+  loop, 656 mV floor).
+- OSM steps 1-7 `ok`, including **step 3, the TrustZone sequencer writes**
+  (`Wrote APM Pair: [5-6]`), then `step 10 ok (acd-none)`. That is the new
+  check: before the fix this boot would have enabled the OSM.
+- **No aborts, no SCM errors, no warnings** anywhere in the boot. No cpufreq
+  policy was registered, so the OSM stayed off.
+
+Clocks afterwards (dependent-add; Linux numbers the boot CPU, a Silver core,
+as cpu0):
+
+```
+cpu0 Silver A53: 1375.0 MHz      cpu1-4 Gold A73: 298.1-298.3 MHz
+cpu5-7 Silver A53: 1378 MHz
+```
+
+The **Gold cluster moved from 598 to ~298 MHz**, i.e. onto the 300 MHz
+GPLL0 alternate source, even though the OSM was never enabled. Silver is
+unchanged. Harmless (lower clock at the same voltage) and gone at reboot,
+but it means the programming steps already touch the Gold clock mux. Note
+for T10: the OSM takes over from this state.
+
+Full log: `backups/cprh-port-2026-10-30/T9-dmesg.txt` (not in git; contains
+the device serial).

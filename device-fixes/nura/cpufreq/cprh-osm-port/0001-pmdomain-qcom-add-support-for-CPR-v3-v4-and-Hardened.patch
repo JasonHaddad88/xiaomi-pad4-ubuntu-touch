@@ -1,7 +1,7 @@
 From 8d8a0ac88a282abd879a1f5419d0306a8eda0c30 Mon Sep 17 00:00:00 2001
 From: AngeloGioacchino Del Regno <angelogioacchino.delregno@somainline.org>
 Date: Tue, 24 Nov 2020 20:39:22 +0100
-Subject: [PATCH 01/22] pmdomain: qcom: add support for CPR v3, v4 and Hardened
+Subject: [PATCH 01/23] pmdomain: qcom: add support for CPR v3, v4 and Hardened
 
 Core Power Reduction is a closed-loop voltage regulation technology found
 on Qualcomm SoCs: silicon-specific calibration data is burnt into qfprom

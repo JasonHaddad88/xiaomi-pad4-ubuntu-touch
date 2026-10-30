@@ -98,3 +98,43 @@ it.
 Read `dmesg | grep -iE "cpr|osm|cpufreq"`, and check that
 `/sys/module/qcom_cpr3/parameters/cprh_init_stop` reads 2. The speed bin also
 decides which DTB the later images use.
+
+---
+
+## T7 result (2026-10-30): boots clean, but it tested less than intended
+
+T7 (`cprh_init_stop=2`, `osm_setup_stop=0`) booted in ~90 s, and both gates
+read back live with the exact values given. Observed:
+
+- `osm-setup: domain N step 0 ok (nothing)` on all 8 CPUs, then a clean
+  `-ECANCELED` and normal boot. No register touched.
+- `Driver 'qcom_spm' is already registered, aborting`: the stale `spm.ko`
+  from the installed rootfs was refused because the patched SPM is built in.
+- `179c8000.power-controller` bound to `qcom-cpr3`; nothing deferred.
+- Generic `cpufreq-dt` still tried and failed: the blocklist named
+  `qcom,sdm660`, but clover's root compatible is `qcom,sda660`. Fixed in the
+  next build.
+
+**My test-design mistake:** the CPRh phases only run when OSM step 1
+attaches the CPRh domain (`qcom_cpufreq_gen_params()`), so with
+`osm_setup_stop=0` the corner computation never started, and `cprh_init_stop=2`
+was never exercised. T8 corrects this with `osm_setup_stop=1`. Verified in
+the code: step 1 attaches the domain and builds the table in memory; the
+first `writel` and the corner request come after step 1's stop check.
+
+**Do not read the raw qfprom block from userspace.** Reading 32 KiB of
+`/sys/bus/nvmem/devices/qfprom0/nvmem` took the tablet down (likely a
+secure-only fuse row), and a 1-byte read at `0x4133` returned nothing. The
+CPR3 driver reads the cells it needs (`cpr_speed_bin`, `cpr_fuse_revision`,
+the 38 calibration cells) through nvmem at probe, which worked in T7. The
+next build logs the speed bin and fusing revision from there.
+
+## T8 (ready)
+
+`backups/cprh-port-2026-10-30/T8-cprh2-osm1-bin1-NO-WRITES-dyndbg.img`,
+md5 `99cd8f17bd614c449576ce193b5c97c8`. Gates `cprh_init_stop=2`,
+`osm_setup_stop=1`, plus
+`dyndbg="file cpr3.c +p; file cpr-common.c +p; file qcom-cpufreq-hw.c +p"`.
+That prints each fuse corner's floor/ceiling/target, each CPU frequency's
+corner, and (new) `speed bin N, CPR fusing revision M`. Still no register
+writes.

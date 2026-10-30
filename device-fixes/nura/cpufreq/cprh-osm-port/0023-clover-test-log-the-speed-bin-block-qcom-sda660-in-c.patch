@@ -1,0 +1,47 @@
+From d4f3f9dc013c449519a8078a8d5c12799f83b7ce Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Fri, 30 Oct 2026 17:45:25 +0200
+Subject: [PATCH 23/23] clover test: log the speed bin; block qcom,sda660 in
+ cpufreq-dt-platdev
+
+The CPR3 driver reads cpr_speed_bin and cpr_fuse_revision through nvmem
+cells at probe but never prints them, and the speed bin decides which
+CPU OPP table is correct. Reading the raw qfprom block from userspace is
+not an alternative on this SoC: a 32 KiB read of it took the tablet down.
+
+clover's root compatible is qcom,sda660, which the SDM630/660 blocklist
+entry did not cover, so cpufreq-dt still tried and failed on every boot.
+---
+ drivers/cpufreq/cpufreq-dt-platdev.c | 1 +
+ drivers/pmdomain/qcom/cpr3.c         | 3 +++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/drivers/cpufreq/cpufreq-dt-platdev.c b/drivers/cpufreq/cpufreq-dt-platdev.c
+index b81038351..009c596a4 100644
+--- a/drivers/cpufreq/cpufreq-dt-platdev.c
++++ b/drivers/cpufreq/cpufreq-dt-platdev.c
+@@ -170,6 +170,7 @@ static const struct of_device_id blocklist[] __initconst = {
+ 	{ .compatible = "qcom,sc8280xp", },
+ 	{ .compatible = "qcom,sdm630", },
+ 	{ .compatible = "qcom,sdm660", },
++	{ .compatible = "qcom,sda660", },
+ 	{ .compatible = "qcom,sdm670", },
+ 	{ .compatible = "qcom,sdm845", },
+ 	{ .compatible = "qcom,sdx75", },
+diff --git a/drivers/pmdomain/qcom/cpr3.c b/drivers/pmdomain/qcom/cpr3.c
+index a42da139a..9f6a46e36 100644
+--- a/drivers/pmdomain/qcom/cpr3.c
++++ b/drivers/pmdomain/qcom/cpr3.c
+@@ -3303,6 +3303,9 @@ static int cpr_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	dev_info(dev, "speed bin %u, CPR fusing revision %u\n",
++		 drv->speed_bin, drv->fusing_rev);
++
+ 	/*
+ 	 * Some SoCs require extra corners for MEM-ACC or APM: if
+ 	 * the related parameters have been specified, then reserve
+-- 
+2.53.0
+

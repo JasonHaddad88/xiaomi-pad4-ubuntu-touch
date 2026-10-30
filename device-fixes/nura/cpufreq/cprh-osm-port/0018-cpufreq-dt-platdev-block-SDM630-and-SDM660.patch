@@ -1,7 +1,7 @@
 From 506731836a850c68416955b8839e53f1770c4628 Mon Sep 17 00:00:00 2001
 From: Noa Himesaka <himesaka@noa.codes>
 Date: Wed, 21 Oct 2026 18:25:00 +0900
-Subject: [PATCH 18/22] cpufreq: dt-platdev: block SDM630 and SDM660
+Subject: [PATCH 18/23] cpufreq: dt-platdev: block SDM630 and SDM660
 
 Their CPU frequencies are set by the OSM through qcom-cpufreq-hw, not by
 cpufreq-dt. Same as AngeloGioacchino Del Regno's "cpufreq: blacklist

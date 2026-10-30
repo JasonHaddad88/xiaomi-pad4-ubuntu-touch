@@ -1,7 +1,7 @@
 From e3c35f74115e833bcb28a47e7eaf2be61ea03d77 Mon Sep 17 00:00:00 2001
 From: Noa Himesaka <himesaka@noa.codes>
 Date: Wed, 21 Oct 2026 18:25:01 +0900
-Subject: [PATCH 20/22] soc: qcom: spm: fix the SDM660 L2 SAW AVS setup
+Subject: [PATCH 20/23] soc: qcom: spm: fix the SDM660 L2 SAW AVS setup
 
 The vendor DT programs qcom,saw2-avs-ctl = <0x1010031> on both L2 SAWs;
 0x101c031 also set MIN_VLVL. And the SAW v4.1 L2 data has no sequence

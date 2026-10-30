@@ -1,0 +1,1392 @@
+From fce097e081526abdc41a58cf81148ddcc2e8b5e7 Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Fri, 30 Oct 2026 14:51:23 +0200
+Subject: [PATCH 21/22] arm64: dts: qcom: sda660-xiaomi-clover: CPU DVFS test
+ DTBs, one per speed bin
+
+sdm660-cprh-osm.dtsi carries the CPU-DVFS hunks of HiBy patch 0041
+verbatim (SAW L2 AVS ports, cpufreq-hw, CPRh, fuse cells, corners); the
+idle, GPU, display and watchdog parts are left out and no shared SoC file
+is touched. The CPU OPP rows are generated from clover's own Android OSM
+tables for speed bins 0, 1, 3 and 4; the driver's FREQ/OVERRIDE/SPARE
+words for all 55 rows equal clover's Android words exactly.
+---
+ arch/arm64/boot/dts/qcom/Makefile             |   4 +
+ .../sda660-xiaomi-clover-cpufreq-bin0.dts     |   9 +
+ .../sda660-xiaomi-clover-cpufreq-bin0.dtsi    | 204 ++++++++
+ .../sda660-xiaomi-clover-cpufreq-bin1.dts     |   9 +
+ .../sda660-xiaomi-clover-cpufreq-bin1.dtsi    | 204 ++++++++
+ .../sda660-xiaomi-clover-cpufreq-bin3.dts     |   9 +
+ .../sda660-xiaomi-clover-cpufreq-bin3.dtsi    | 183 +++++++
+ .../sda660-xiaomi-clover-cpufreq-bin4.dts     |   9 +
+ .../sda660-xiaomi-clover-cpufreq-bin4.dtsi    | 190 +++++++
+ arch/arm64/boot/dts/qcom/sdm660-cprh-osm.dtsi | 469 ++++++++++++++++++
+ 10 files changed, 1290 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dtsi
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dtsi
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dtsi
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dtsi
+ create mode 100644 arch/arm64/boot/dts/qcom/sdm660-cprh-osm.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 2eed0838a..ad2992231 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -255,6 +255,10 @@ sc8280xp-microsoft-blackrock-el2-dtbs	:= sc8280xp-microsoft-blackrock.dtb sc8280
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-microsoft-blackrock.dtb sc8280xp-microsoft-blackrock-el2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sda660-inforce-ifc6560.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin0.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin1.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin3.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin4.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-lenovo-tbx605f.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-motorola-ali.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm630-nokia-pl2.dtb
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
+new file mode 100644
+index 000000000..1a27bf9c3
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * TEST ONLY: clover with CPU DVFS, speed bin 0.
++ * Boot it with fastboot boot and the bring-up gates, never flash it untested.
++ */
++
++#include "sda660-xiaomi-clover.dts"
++#include "sdm660-cprh-osm.dtsi"
++#include "sda660-xiaomi-clover-cpufreq-bin0.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dtsi b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dtsi
+new file mode 100644
+index 000000000..2eaf7c98b
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dtsi
+@@ -0,0 +1,204 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Xiaomi Mi Pad 4 (clover): CPU DVFS for speed bin 0.
++ * CPU OPP rows generated from clover's own Android OSM tables
++ * qcom,{pwrcl,perfcl}-speedbin0-v0: opp-hz = column 1, pll-override =
++ * column 3, spare-data = column 4, required CPRh corner = column 5,
++ * pll-div = freq_data bits 25:24. Voltages are NOT here: the CPRh
++ * driver computes them per chip from the fuses.
++ *
++ * cpu0-3 = cpu@100-103 = gold (perfcl, OSM domain 1, CPRh thread 1),
++ * cpu4-7 = cpu@0-3 = silver (pwrcl, OSM domain 0, CPRh thread 0).
++ * The CPUs have no PSCI power domain on this kernel, so the CPRh one
++ * is the only entry; the driver finds it by its "cpr" name.
++ */
++
++/ {
++	pwrcl_opp_table: opp-table-pwrcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-633600000 {
++			opp-hz = /bits/ 64 <633600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x3200020>;
++			qcom,spare-data = <1>;
++			qcom,pll-div = <1>;
++		};
++
++		opp-902400000 {
++			opp-hz = /bits/ 64 <902400000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x4260026>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1536000000 {
++			opp-hz = /bits/ 64 <1536000000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0x8400040>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1843200000 {
++			opp-hz = /bits/ 64 <1843200000>;
++			required-opps = <&cprh_opp8>;
++			qcom,pll-override = <0x94c004c>;
++			qcom,spare-data = <3>;
++		};
++	};
++
++	perfcl_opp_table: opp-table-perfcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1958400000 {
++			opp-hz = /bits/ 64 <1958400000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0xa510051>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-2150400000 {
++			opp-hz = /bits/ 64 <2150400000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0xb590059>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-2457600000 {
++			opp-hz = /bits/ 64 <2457600000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0xc660066>;
++			qcom,spare-data = <3>;
++		};
++	};
++};
++
++&cpu0 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu1 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu2 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu3 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu4 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu5 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu6 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu7 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&apc_cprh {
++	status = "okay";
++};
++
++&cpufreq_hw {
++	status = "okay";
++};
++
++&saw_gold_l2 {
++	status = "okay";
++};
++
++&saw_silver_l2 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
+new file mode 100644
+index 000000000..18fb81bef
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * TEST ONLY: clover with CPU DVFS, speed bin 1.
++ * Boot it with fastboot boot and the bring-up gates, never flash it untested.
++ */
++
++#include "sda660-xiaomi-clover.dts"
++#include "sdm660-cprh-osm.dtsi"
++#include "sda660-xiaomi-clover-cpufreq-bin1.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dtsi b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dtsi
+new file mode 100644
+index 000000000..3c8ef319b
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dtsi
+@@ -0,0 +1,204 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Xiaomi Mi Pad 4 (clover): CPU DVFS for speed bin 1.
++ * CPU OPP rows generated from clover's own Android OSM tables
++ * qcom,{pwrcl,perfcl}-speedbin1-v0: opp-hz = column 1, pll-override =
++ * column 3, spare-data = column 4, required CPRh corner = column 5,
++ * pll-div = freq_data bits 25:24. Voltages are NOT here: the CPRh
++ * driver computes them per chip from the fuses.
++ *
++ * cpu0-3 = cpu@100-103 = gold (perfcl, OSM domain 1, CPRh thread 1),
++ * cpu4-7 = cpu@0-3 = silver (pwrcl, OSM domain 0, CPRh thread 0).
++ * The CPUs have no PSCI power domain on this kernel, so the CPRh one
++ * is the only entry; the driver finds it by its "cpr" name.
++ */
++
++/ {
++	pwrcl_opp_table: opp-table-pwrcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-633600000 {
++			opp-hz = /bits/ 64 <633600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x3200020>;
++			qcom,spare-data = <1>;
++			qcom,pll-div = <1>;
++		};
++
++		opp-902400000 {
++			opp-hz = /bits/ 64 <902400000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x4260026>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1536000000 {
++			opp-hz = /bits/ 64 <1536000000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0x8400040>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1843200000 {
++			opp-hz = /bits/ 64 <1843200000>;
++			required-opps = <&cprh_opp8>;
++			qcom,pll-override = <0x94c004c>;
++			qcom,spare-data = <3>;
++		};
++	};
++
++	perfcl_opp_table: opp-table-perfcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1958400000 {
++			opp-hz = /bits/ 64 <1958400000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0xa510051>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-2150400000 {
++			opp-hz = /bits/ 64 <2150400000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0xb590059>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-2208000000 {
++			opp-hz = /bits/ 64 <2208000000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0xb5c005c>;
++			qcom,spare-data = <3>;
++		};
++	};
++};
++
++&cpu0 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu1 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu2 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu3 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu4 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu5 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu6 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu7 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&apc_cprh {
++	status = "okay";
++};
++
++&cpufreq_hw {
++	status = "okay";
++};
++
++&saw_gold_l2 {
++	status = "okay";
++};
++
++&saw_silver_l2 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
+new file mode 100644
+index 000000000..2606e0b35
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * TEST ONLY: clover with CPU DVFS, speed bin 3.
++ * Boot it with fastboot boot and the bring-up gates, never flash it untested.
++ */
++
++#include "sda660-xiaomi-clover.dts"
++#include "sdm660-cprh-osm.dtsi"
++#include "sda660-xiaomi-clover-cpufreq-bin3.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dtsi b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dtsi
+new file mode 100644
+index 000000000..b418327b1
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dtsi
+@@ -0,0 +1,183 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Xiaomi Mi Pad 4 (clover): CPU DVFS for speed bin 3.
++ * CPU OPP rows generated from clover's own Android OSM tables
++ * qcom,{pwrcl,perfcl}-speedbin3-v0: opp-hz = column 1, pll-override =
++ * column 3, spare-data = column 4, required CPRh corner = column 5,
++ * pll-div = freq_data bits 25:24. Voltages are NOT here: the CPRh
++ * driver computes them per chip from the fuses.
++ *
++ * cpu0-3 = cpu@100-103 = gold (perfcl, OSM domain 1, CPRh thread 1),
++ * cpu4-7 = cpu@0-3 = silver (pwrcl, OSM domain 0, CPRh thread 0).
++ * The CPUs have no PSCI power domain on this kernel, so the CPRh one
++ * is the only entry; the driver finds it by its "cpr" name.
++ */
++
++/ {
++	pwrcl_opp_table: opp-table-pwrcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-633600000 {
++			opp-hz = /bits/ 64 <633600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x3200020>;
++			qcom,spare-data = <1>;
++			qcom,pll-div = <1>;
++		};
++
++		opp-902400000 {
++			opp-hz = /bits/ 64 <902400000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x4260026>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1536000000 {
++			opp-hz = /bits/ 64 <1536000000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0x8400040>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1612800000 {
++			opp-hz = /bits/ 64 <1612800000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0x9430043>;
++			qcom,spare-data = <2>;
++		};
++	};
++
++	perfcl_opp_table: opp-table-perfcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1804800000 {
++			opp-hz = /bits/ 64 <1804800000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0x94b004b>;
++			qcom,spare-data = <2>;
++		};
++	};
++};
++
++&cpu0 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu1 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu2 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu3 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu4 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu5 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu6 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu7 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&apc_cprh {
++	status = "okay";
++};
++
++&cpufreq_hw {
++	status = "okay";
++};
++
++&saw_gold_l2 {
++	status = "okay";
++};
++
++&saw_silver_l2 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
+new file mode 100644
+index 000000000..89250ef81
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * TEST ONLY: clover with CPU DVFS, speed bin 4.
++ * Boot it with fastboot boot and the bring-up gates, never flash it untested.
++ */
++
++#include "sda660-xiaomi-clover.dts"
++#include "sdm660-cprh-osm.dtsi"
++#include "sda660-xiaomi-clover-cpufreq-bin4.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dtsi b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dtsi
+new file mode 100644
+index 000000000..10199a31f
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dtsi
+@@ -0,0 +1,190 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Xiaomi Mi Pad 4 (clover): CPU DVFS for speed bin 4.
++ * CPU OPP rows generated from clover's own Android OSM tables
++ * qcom,{pwrcl,perfcl}-speedbin4-v0: opp-hz = column 1, pll-override =
++ * column 3, spare-data = column 4, required CPRh corner = column 5,
++ * pll-div = freq_data bits 25:24. Voltages are NOT here: the CPRh
++ * driver computes them per chip from the fuses.
++ *
++ * cpu0-3 = cpu@100-103 = gold (perfcl, OSM domain 1, CPRh thread 1),
++ * cpu4-7 = cpu@0-3 = silver (pwrcl, OSM domain 0, CPRh thread 0).
++ * The CPUs have no PSCI power domain on this kernel, so the CPRh one
++ * is the only entry; the driver finds it by its "cpr" name.
++ */
++
++/ {
++	pwrcl_opp_table: opp-table-pwrcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-633600000 {
++			opp-hz = /bits/ 64 <633600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x3200020>;
++			qcom,spare-data = <1>;
++			qcom,pll-div = <1>;
++		};
++
++		opp-902400000 {
++			opp-hz = /bits/ 64 <902400000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x4260026>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1536000000 {
++			opp-hz = /bits/ 64 <1536000000>;
++			required-opps = <&cprh_opp6>;
++			qcom,pll-override = <0x8400040>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp7>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1843200000 {
++			opp-hz = /bits/ 64 <1843200000>;
++			required-opps = <&cprh_opp8>;
++			qcom,pll-override = <0x94c004c>;
++			qcom,spare-data = <3>;
++		};
++	};
++
++	perfcl_opp_table: opp-table-perfcl {
++		compatible = "operating-points-v2-qcom-osm";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			required-opps = <&cprh_opp1>;
++			qcom,pll-override = <0x1200020>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1113600000 {
++			opp-hz = /bits/ 64 <1113600000>;
++			required-opps = <&cprh_opp2>;
++			qcom,pll-override = <0x52e002e>;
++			qcom,spare-data = <1>;
++		};
++
++		opp-1401600000 {
++			opp-hz = /bits/ 64 <1401600000>;
++			required-opps = <&cprh_opp3>;
++			qcom,pll-override = <0x73a003a>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1747200000 {
++			opp-hz = /bits/ 64 <1747200000>;
++			required-opps = <&cprh_opp4>;
++			qcom,pll-override = <0x9480048>;
++			qcom,spare-data = <2>;
++		};
++
++		opp-1958400000 {
++			opp-hz = /bits/ 64 <1958400000>;
++			required-opps = <&cprh_opp5>;
++			qcom,pll-override = <0xa510051>;
++			qcom,spare-data = <2>;
++		};
++	};
++};
++
++&cpu0 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu1 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu2 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu3 {
++	operating-points-v2 = <&perfcl_opp_table>;
++	power-domains = <&apc_cprh 1>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 1>;
++};
++
++&cpu4 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu5 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu6 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&cpu7 {
++	operating-points-v2 = <&pwrcl_opp_table>;
++	power-domains = <&apc_cprh 0>;
++	power-domain-names = "cpr";
++	qcom,freq-domain = <&cpufreq_hw 0>;
++};
++
++&apc_cprh {
++	status = "okay";
++};
++
++&cpufreq_hw {
++	status = "okay";
++};
++
++&saw_gold_l2 {
++	status = "okay";
++};
++
++&saw_silver_l2 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/qcom/sdm660-cprh-osm.dtsi b/arch/arm64/boot/dts/qcom/sdm660-cprh-osm.dtsi
+new file mode 100644
+index 000000000..1ae137123
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sdm660-cprh-osm.dtsi
+@@ -0,0 +1,469 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * SDM660 CPU DVFS: CPRh voltage controllers, OSM (cpufreq-hw), L2 SAW AVS
++ * ports, CPR fuse cells and CPRh virtual corners.
++ *
++ * Taken verbatim from the CPU-DVFS hunks of the HiBy RS6 series, patch 0041
++ * (github.com/noas-slopware/linux-hiby-rs6, Noa Himesaka). The idle, GPU,
++ * display and watchdog parts of that patch are deliberately left out.
++ * Every value here was checked against clover's Android device tree and
++ * vendor kernel: docs/nura-hiby-cprh-review.md.
++ *
++ * All nodes are disabled; a board enables them.
++ */
++
++&soc {
++	/*
++	 * L2 SAW4 AVS ports: CPRh voltage requests reach the PMIC through
++	 * them.  AVS_CTL/AVS_LIMIT come from the spm driver data, which
++	 * matches the vendor qcom,saw2-avs-{ctl,limit}.
++	 */
++	saw_gold_l2: power-manager@17812000 {
++		compatible = "qcom,sdm660-gold-saw2-v4.1-l2", "qcom,saw2";
++		reg = <0x17812000 0x1000>;
++		status = "disabled";
++	};
++
++	saw_silver_l2: power-manager@17912000 {
++		compatible = "qcom,sdm660-silver-saw2-v4.1-l2", "qcom,saw2";
++		reg = <0x17912000 0x1000>;
++		status = "disabled";
++	};
++
++	cpufreq_hw: cpufreq@179c0000 {
++		compatible = "qcom,sdm660-cpufreq-hw";
++		reg = <0x179c0000 0x1000>, <0x179c1000 0x1000>,
++		      <0x179c2000 0x1000>, <0x179c3000 0x1000>;
++		reg-names = "osm-domain0", "freq-domain0",
++			    "osm-domain1", "freq-domain1";
++
++		clocks = <&rpmcc RPM_SMD_XO_A_CLK_SRC>,
++			 <&gcc HMSS_GPLL0_CLK_SRC>;
++		clock-names = "xo", "alternate";
++
++		/* OSM LUT index 0 runs from this 300 MHz source */
++		assigned-clocks = <&gcc HMSS_GPLL0_CLK_SRC>;
++		assigned-clock-rates = <300000000>;
++
++		#freq-domain-cells = <1>;
++		#clock-cells = <1>;
++		status = "disabled";
++	};
++
++	/* reg[0] = apc0 (power cluster), reg[1] = apc1 (performance cluster) */
++	apc_cprh: power-controller@179c8000 {
++		compatible = "qcom,sdm660-cprh";
++		reg = <0x179c8000 0x4000>, <0x179c4000 0x4000>;
++
++		clocks = <&gcc GCC_HMSS_RBCPR_CLK>;
++		clock-names = "ref";
++		assigned-clocks = <&gcc GCC_HMSS_RBCPR_CLK>;
++		assigned-clock-rates = <19200000>;
++
++		operating-points-v2 = <&cprh_opp_table>;
++		power-domains = <&rpmpd SDM660_VDDCX_AO>;
++		#power-domain-cells = <1>;
++
++		nvmem-cells = <&cpr_efuse_speedbin>,
++			      <&cpr_fuse_revision>,
++			      <&cpr_quot0_pwrcl>,
++			      <&cpr_quot1_pwrcl>,
++			      <&cpr_quot2_pwrcl>,
++			      <&cpr_quot3_pwrcl>,
++			      <&cpr_quot4_pwrcl>,
++			      <&cpr_qoff1_pwrcl>,
++			      <&cpr_qoff2_pwrcl>,
++			      <&cpr_qoff3_pwrcl>,
++			      <&cpr_qoff4_pwrcl>,
++			      <&cpr_ivolt0_pwrcl>,
++			      <&cpr_ivolt1_pwrcl>,
++			      <&cpr_ivolt2_pwrcl>,
++			      <&cpr_ivolt3_pwrcl>,
++			      <&cpr_ivolt4_pwrcl>,
++			      <&cpr_rosel0_pwrcl>,
++			      <&cpr_rosel1_pwrcl>,
++			      <&cpr_rosel2_pwrcl>,
++			      <&cpr_rosel3_pwrcl>,
++			      <&cpr_rosel4_pwrcl>,
++			      <&cpr_quot0_perfcl>,
++			      <&cpr_quot1_perfcl>,
++			      <&cpr_quot2_perfcl>,
++			      <&cpr_quot3_perfcl>,
++			      <&cpr_quot4_perfcl>,
++			      <&cpr_qoff1_perfcl>,
++			      <&cpr_qoff2_perfcl>,
++			      <&cpr_qoff3_perfcl>,
++			      <&cpr_qoff4_perfcl>,
++			      <&cpr_ivolt0_perfcl>,
++			      <&cpr_ivolt1_perfcl>,
++			      <&cpr_ivolt2_perfcl>,
++			      <&cpr_ivolt3_perfcl>,
++			      <&cpr_ivolt4_perfcl>,
++			      <&cpr_rosel0_perfcl>,
++			      <&cpr_rosel1_perfcl>,
++			      <&cpr_rosel2_perfcl>,
++			      <&cpr_rosel3_perfcl>,
++			      <&cpr_rosel4_perfcl>;
++
++		nvmem-cell-names = "cpr_speed_bin",
++				   "cpr_fuse_revision",
++				   "cpr0_quotient1",
++				   "cpr0_quotient2",
++				   "cpr0_quotient3",
++				   "cpr0_quotient4",
++				   "cpr0_quotient5",
++				   "cpr0_quotient_offset2",
++				   "cpr0_quotient_offset3",
++				   "cpr0_quotient_offset4",
++				   "cpr0_quotient_offset5",
++				   "cpr0_init_voltage1",
++				   "cpr0_init_voltage2",
++				   "cpr0_init_voltage3",
++				   "cpr0_init_voltage4",
++				   "cpr0_init_voltage5",
++				   "cpr0_ring_osc1",
++				   "cpr0_ring_osc2",
++				   "cpr0_ring_osc3",
++				   "cpr0_ring_osc4",
++				   "cpr0_ring_osc5",
++				   "cpr1_quotient1",
++				   "cpr1_quotient2",
++				   "cpr1_quotient3",
++				   "cpr1_quotient4",
++				   "cpr1_quotient5",
++				   "cpr1_quotient_offset2",
++				   "cpr1_quotient_offset3",
++				   "cpr1_quotient_offset4",
++				   "cpr1_quotient_offset5",
++				   "cpr1_init_voltage1",
++				   "cpr1_init_voltage2",
++				   "cpr1_init_voltage3",
++				   "cpr1_init_voltage4",
++				   "cpr1_init_voltage5",
++				   "cpr1_ring_osc1",
++				   "cpr1_ring_osc2",
++				   "cpr1_ring_osc3",
++				   "cpr1_ring_osc4",
++				   "cpr1_ring_osc5";
++
++		status = "disabled";
++	};
++};
++
++/*
++ * CPU DVFS: CPR-Hardened (KBSS) voltage controllers and the Operating State
++ * Manager, programmed by the OS.  The fuse layout below is the vendor
++ * kernel's (cprh-kbss-regulator.c: kbss_speed_bin_param,
++ * sdm660_cpr_fusing_rev_param, sdm660_kbss_{target_quot,quot_offset,
++ * init_voltage,ro_sel}_param), relative to qfprom@780000.  cpr0 = power
++ * (silver) cluster, cpr1 = performance (gold) cluster.
++ */
++&qfprom {
++	/* kbss_speed_bin_param: row 38 bits 29-31 */
++	cpr_efuse_speedbin: cpr-speedbin@4133 {
++		reg = <0x4133 0x1>;
++		bits = <5 3>;
++	};
++
++	/* sdm660_cpr_fusing_rev_param: row 71 bits 28-30 */
++	cpr_fuse_revision: cpr-fusing-rev@423b {
++		reg = <0x423b 0x1>;
++		bits = <4 3>;
++	};
++
++	/* sdm660_kbss_target_quot_param[0][0]: row 68 bits 12-23 */
++	cpr_quot0_pwrcl: quot0-pwrcl@4221 {
++		reg = <0x4221 0x2>;
++		bits = <4 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[0][1]: row 68 bits 0-11 */
++	cpr_quot1_pwrcl: quot1-pwrcl@4220 {
++		reg = <0x4220 0x2>;
++		bits = <0 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[0][2]: row 71 bits 9-20 */
++	cpr_quot2_pwrcl: quot2-pwrcl@4239 {
++		reg = <0x4239 0x2>;
++		bits = <1 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[0][3]: row 67 bits 52-63 */
++	cpr_quot3_pwrcl: quot3-pwrcl@421e {
++		reg = <0x421e 0x2>;
++		bits = <4 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[0][4]: row 67 bits 40-51 */
++	cpr_quot4_pwrcl: quot4-pwrcl@421d {
++		reg = <0x421d 0x2>;
++		bits = <0 12>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[0][1]: row 68 bits 38-44 */
++	cpr_qoff1_pwrcl: qoff1-pwrcl@4224 {
++		reg = <0x4224 0x2>;
++		bits = <6 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[0][2]: row 71 bits 21-27 */
++	cpr_qoff2_pwrcl: qoff2-pwrcl@423a {
++		reg = <0x423a 0x2>;
++		bits = <5 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[0][3]: row 68 bits 31-37 */
++	cpr_qoff3_pwrcl: qoff3-pwrcl@4223 {
++		reg = <0x4223 0x2>;
++		bits = <7 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[0][4]: row 68 bits 24-30 */
++	cpr_qoff4_pwrcl: qoff4-pwrcl@4223 {
++		reg = <0x4223 0x1>;
++		bits = <0 7>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[0][0]: row 67 bits 34-39 */
++	cpr_ivolt0_pwrcl: ivolt0-pwrcl@421c {
++		reg = <0x421c 0x1>;
++		bits = <2 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[0][1]: row 67 bits 28-33 */
++	cpr_ivolt1_pwrcl: ivolt1-pwrcl@421b {
++		reg = <0x421b 0x2>;
++		bits = <4 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[0][2]: row 71 bits 3-8 */
++	cpr_ivolt2_pwrcl: ivolt2-pwrcl@4238 {
++		reg = <0x4238 0x2>;
++		bits = <3 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[0][3]: row 67 bits 22-27 */
++	cpr_ivolt3_pwrcl: ivolt3-pwrcl@421a {
++		reg = <0x421a 0x2>;
++		bits = <6 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[0][4]: row 67 bits 16-21 */
++	cpr_ivolt4_pwrcl: ivolt4-pwrcl@421a {
++		reg = <0x421a 0x1>;
++		bits = <0 6>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[0][0]: row 67 bits 12-15 */
++	cpr_rosel0_pwrcl: rosel0-pwrcl@4219 {
++		reg = <0x4219 0x1>;
++		bits = <4 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[0][1]: row 67 bits 8-11 */
++	cpr_rosel1_pwrcl: rosel1-pwrcl@4219 {
++		reg = <0x4219 0x1>;
++		bits = <0 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[0][2]: row 65 bits 56-59 */
++	cpr_rosel2_pwrcl: rosel2-pwrcl@420f {
++		reg = <0x420f 0x1>;
++		bits = <0 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[0][3]: row 67 bits 4-7 */
++	cpr_rosel3_pwrcl: rosel3-pwrcl@4218 {
++		reg = <0x4218 0x1>;
++		bits = <4 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[0][4]: row 67 bits 0-3 */
++	cpr_rosel4_pwrcl: rosel4-pwrcl@4218 {
++		reg = <0x4218 0x1>;
++		bits = <0 4>;
++	};
++
++	/* sdm660_kbss_target_quot_param[1][0]: row 69 bits 53-63, row 70 bits 0-0 */
++	cpr_quot0_perfcl: quot0-perfcl@422e {
++		reg = <0x422e 0x3>;
++		bits = <5 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[1][1]: row 70 bits 1-12 */
++	cpr_quot1_perfcl: quot1-perfcl@4230 {
++		reg = <0x4230 0x2>;
++		bits = <1 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[1][2]: row 69 bits 41-52 */
++	cpr_quot2_perfcl: quot2-perfcl@422d {
++		reg = <0x422d 0x2>;
++		bits = <1 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[1][3]: row 69 bits 29-40 */
++	cpr_quot3_perfcl: quot3-perfcl@422b {
++		reg = <0x422b 0x3>;
++		bits = <5 12>;
++	};
++
++	/* sdm660_kbss_target_quot_param[1][4]: row 70 bits 48-59 */
++	cpr_quot4_perfcl: quot4-perfcl@4236 {
++		reg = <0x4236 0x2>;
++		bits = <0 12>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[1][1]: row 70 bits 27-33 */
++	cpr_qoff1_perfcl: qoff1-perfcl@4233 {
++		reg = <0x4233 0x2>;
++		bits = <3 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[1][2]: row 70 bits 20-26 */
++	cpr_qoff2_perfcl: qoff2-perfcl@4232 {
++		reg = <0x4232 0x2>;
++		bits = <4 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[1][3]: row 70 bits 13-19 */
++	cpr_qoff3_perfcl: qoff3-perfcl@4231 {
++		reg = <0x4231 0x2>;
++		bits = <5 7>;
++	};
++
++	/* sdm660_kbss_quot_offset_param[1][4]: row 70 bits 60-63, row 71 bits 0-2 */
++	cpr_qoff4_perfcl: qoff4-perfcl@4237 {
++		reg = <0x4237 0x2>;
++		bits = <4 7>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[1][0]: row 69 bits 17-22 */
++	cpr_ivolt0_perfcl: ivolt0-perfcl@422a {
++		reg = <0x422a 0x1>;
++		bits = <1 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[1][1]: row 69 bits 23-28 */
++	cpr_ivolt1_perfcl: ivolt1-perfcl@422a {
++		reg = <0x422a 0x2>;
++		bits = <7 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[1][2]: row 69 bits 11-16 */
++	cpr_ivolt2_perfcl: ivolt2-perfcl@4229 {
++		reg = <0x4229 0x2>;
++		bits = <3 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[1][3]: row 69 bits 5-10 */
++	cpr_ivolt3_perfcl: ivolt3-perfcl@4228 {
++		reg = <0x4228 0x2>;
++		bits = <5 6>;
++	};
++
++	/* sdm660_kbss_init_voltage_param[1][4]: row 70 bits 42-47 */
++	cpr_ivolt4_perfcl: ivolt4-perfcl@4235 {
++		reg = <0x4235 0x1>;
++		bits = <2 6>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[1][0]: row 68 bits 61-63, row 69 bits 0-0 */
++	cpr_rosel0_perfcl: rosel0-perfcl@4227 {
++		reg = <0x4227 0x2>;
++		bits = <5 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[1][1]: row 69 bits 1-4 */
++	cpr_rosel1_perfcl: rosel1-perfcl@4228 {
++		reg = <0x4228 0x1>;
++		bits = <1 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[1][2]: row 68 bits 57-60 */
++	cpr_rosel2_perfcl: rosel2-perfcl@4227 {
++		reg = <0x4227 0x1>;
++		bits = <1 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[1][3]: row 68 bits 53-56 */
++	cpr_rosel3_perfcl: rosel3-perfcl@4226 {
++		reg = <0x4226 0x2>;
++		bits = <5 4>;
++	};
++
++	/* sdm660_kbss_ro_sel_param[1][4]: row 66 bits 14-17 */
++	cpr_rosel4_perfcl: rosel4-perfcl@4211 {
++		reg = <0x4211 0x2>;
++		bits = <6 4>;
++	};
++};
++
++/ {
++	/*
++	 * CPRh virtual corners, shared by both clusters.  qcom,opp-fuse-level
++	 * is <pwrcl perfcl>, from the vendor qcom,cpr-corner-fmax-map:
++	 * pwrcl <2 3 4 5 8>, perfcl <2 3 4 6 7>.  The vendor DT has no
++	 * per-corner open/closed-loop adjustment.
++	 */
++	cprh_opp_table: opp-table-cprh {
++		compatible = "operating-points-v2-qcom-level";
++
++		cprh_opp1: opp-1 {
++			opp-level = <1>;
++			qcom,opp-fuse-level = <1 1>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp2: opp-2 {
++			opp-level = <2>;
++			qcom,opp-fuse-level = <1 1>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp3: opp-3 {
++			opp-level = <3>;
++			qcom,opp-fuse-level = <2 2>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp4: opp-4 {
++			opp-level = <4>;
++			qcom,opp-fuse-level = <3 3>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp5: opp-5 {
++			opp-level = <5>;
++			qcom,opp-fuse-level = <4 4>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp6: opp-6 {
++			opp-level = <6>;
++			qcom,opp-fuse-level = <5 4>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp7: opp-7 {
++			opp-level = <7>;
++			qcom,opp-fuse-level = <5 5>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++
++		cprh_opp8: opp-8 {
++			opp-level = <8>;
++			qcom,opp-fuse-level = <5 5>;
++			qcom,opp-oloop-vadj = <0 0>;
++			qcom,opp-cloop-vadj = <0 0>;
++		};
++	};
++};
+-- 
+2.53.0
+

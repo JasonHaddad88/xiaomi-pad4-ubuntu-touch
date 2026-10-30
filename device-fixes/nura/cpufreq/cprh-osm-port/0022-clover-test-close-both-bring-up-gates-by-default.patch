@@ -1,0 +1,48 @@
+From 1fe6b3c1dc4cf6fe802e632d972fcb096f8dcd29 Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Fri, 30 Oct 2026 14:52:11 +0200
+Subject: [PATCH 22/22] clover test: close both bring-up gates by default
+
+Reverts HiBy 0013's 'fully open' defaults for test kernels. With both
+at 0 a boot without explicit qcom_cpufreq_hw.osm_setup_stop= and
+qcom_cpr3.cprh_init_stop= programs nothing, so a mistyped or forgotten
+parameter behaves like the known-good control, never like the build
+under test.
+---
+ drivers/cpufreq/qcom-cpufreq-hw.c | 4 ++--
+ drivers/pmdomain/qcom/cpr3.c      | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/cpufreq/qcom-cpufreq-hw.c b/drivers/cpufreq/qcom-cpufreq-hw.c
+index 58222a11b..4a4856668 100644
+--- a/drivers/cpufreq/qcom-cpufreq-hw.c
++++ b/drivers/cpufreq/qcom-cpufreq-hw.c
+@@ -306,8 +306,8 @@ static bool icc_scaling_enabled;
+  * kernel command line and let the last surviving boot say where it died.
+  * Zero programs nothing, which is the known-good control.
+  */
+-/* Default 12 = all steps: cpufreq works since the SAW4 AVS fix. */
+-static int osm_setup_stop = 12;
++/* clover test builds: closed by default. Open it per boot on the cmdline. */
++static int osm_setup_stop;
+ module_param(osm_setup_stop, int, 0444);
+ MODULE_PARM_DESC(osm_setup_stop,
+ 		 "stop OSM programming after step N (0: program nothing)");
+diff --git a/drivers/pmdomain/qcom/cpr3.c b/drivers/pmdomain/qcom/cpr3.c
+index e9644a06b..a42da139a 100644
+--- a/drivers/pmdomain/qcom/cpr3.c
++++ b/drivers/pmdomain/qcom/cpr3.c
+@@ -297,8 +297,8 @@ struct cpr_desc {
+  * half from the first register write so the last log line names the phase.
+  * Zero touches no hardware at all, which is the known-good control.
+  */
+-/* Default 5 = all phases: cpufreq works since the SAW4 AVS fix. */
+-static int cprh_init_stop = 5;
++/* clover test builds: closed by default. Open it per boot on the cmdline. */
++static int cprh_init_stop;
+ module_param(cprh_init_stop, int, 0444);
+ MODULE_PARM_DESC(cprh_init_stop,
+ 		 "stop CPRh setup after phase N (0: no hardware access)");
+-- 
+2.53.0
+

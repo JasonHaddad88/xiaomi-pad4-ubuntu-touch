@@ -58,7 +58,8 @@ Command line, built in:
   - 1: CPU OPP table
   - 2: every corner computed from the fuses, **still no writes**
   - 3: CPR registers
-  - 4: corner table (full; the loop is armed only by OSM step 12)
+  - 4: corner table written, but the init then **stops** (`phase >= N`), so the
+    thread is never marked initialised. **Full = 5** (corrected after T10)
 - `qcom_cpufreq_hw.osm_setup_stop=N`
   - 0: nothing
   - 1: CPRh corner table
@@ -232,3 +233,31 @@ for T10: the OSM takes over from this state.
 
 Full log: `backups/cprh-port-2026-10-30/T9-dmesg.txt` (not in git; contains
 the device serial).
+
+## T10 result (2026-10-30): the OSM comes up on clover; my gate value stopped the loop
+
+Gates `cprh_init_stop=4`, `osm_setup_stop=12`. Booted in ~1 min.
+
+- `osm-setup: ... step 11 ok (osm-enable)` on both clusters: **the OSM
+  switched on without a crash.** Measured clocks then sat at its lowest
+  state, ~300 MHz (Silver 274, Gold 296 MHz under load), stable.
+- Step 12 failed: `qcom-cpr3: thread N has no corner table` ->
+  `Cannot arm the CPRh loop: -22` -> `Cannot setup the OSM for CPUn: -22`, so
+  no cpufreq policy registered and nothing could raise the clock.
+
+**Cause: my gate value.** `cprh_stop_after()` returns `phase >= cprh_init_stop`,
+and at phase 4 it returns `-ECANCELED` before the success path sets
+`thread->cprh_inited`. So `cprh_init_stop=4` writes the corner table but never
+marks the thread initialised. HiBy's own "all phases" default was **5**. The
+gate table above is corrected.
+
+Consequence while it ran: OSM enabled, CPRh loop not armed, CPUs held at the
+lowest OSM state. Safe (300 MHz needs no more voltage than the boot rail
+gives), just slow. Log: `backups/cprh-port-2026-10-30/T10-dmesg.txt`.
+
+## T11 (ready)
+
+`T11-cprh5-osm12-bin1-FULL-powersave.img`, md5
+`1658c07cf1bb5b24e324e35204607f90`. Same kernel and DTB as T10, only
+`qcom_cpr3.cprh_init_stop=5`. Expect: step 12 `cpr-loop` ok, cpufreq policies
+registered with the powersave governor at 300 MHz. Then raise the speed by hand.

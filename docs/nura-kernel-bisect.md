@@ -1,6 +1,6 @@
 # Why locally built kernels black-screen: test plan
 
-Status 2026-10-29: **unresolved, images ready, nothing run yet.**
+Status 2026-10-30: **resolved. Cause: BTF module validation (confirmed by T4).**
 
 ## The problem
 
@@ -21,7 +21,7 @@ control kernel carrying no patch at all**.
 | the kernel config | embedded configs (IKCONFIG) of installed r2 and local r0 differ only by commit `400b925` (netfilter netdev, CDROM, a Himax panel), and the compiler point release, clang 23.1.3 vs 23.1.4 |
 | the DTB | the local DTB differs from the installed one only by the speaker nodes and capacity values, and the stock DTB is what Nura was installed with |
 
-## Leading explanation (not yet proven)
+## Cause (confirmed by T4 on 2026-10-30)
 
 The config has `CONFIG_DEBUG_INFO_BTF_MODULES=y` and does **not** set
 `CONFIG_MODULE_ALLOW_BTF_MISMATCH`. Every module on the rootfs was built
@@ -94,3 +94,42 @@ every earlier `fastboot boot` in this project.
 - A permanent kernel must ship **with its own modules** (install the package
   on the device, not just the boot image), and must carry the patched DTB, or
   the speakers and capacity fix are lost.
+
+## Results (2026-10-30)
+
+**T4 booted in ~28 s**, with `uname -v` = `#1-postmarketos-qcom-sdm660 ... Thu
+Oct 29 20:30:29` and `nura_bisect=4` in `/proc/cmdline`, which proves the RAM
+image ran. The kernel log shows the cause directly:
+
+```
+[1.207235] Kernel module BTF mismatch detected, BTF debug info may be unavailable for some modules
+[10.213284] missing module BTF, cannot register kfunc
+```
+
+That first line is what this kernel prints **instead of refusing** a module,
+and only with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`. With it on, 119 modules
+loaded, including `msm` (display) and `ath10k_snoc`/`ath10k_core` (Wi-Fi). The
+speakers and the capacity fix were active. Without the option, the same
+mismatch makes module load fail, which explains all five black screens.
+
+One residual variable: the failing control used the local stock DTB, while T4
+used the installed one. The log proves the mismatch exists regardless, and
+the stock DTB is what Nura was installed with, so the DTB is not a credible
+cause. T1-T3 were not needed.
+
+**T5 booted in ~40 s** (`nura_bisect=5`). The read-only OSM dump ran, and
+every register read survived:
+
+```
+pwrcl-A53:  VERSION = 0x00070000  ENABLE = 0x00000000 -> OSM DISABLED  PERF_STATE = 0
+perfcl-A73: VERSION = 0x00000000  ENABLE = 0x00000000 -> OSM DISABLED  PERF_STATE = 0
+======== all reads survived ========
+```
+
+The tablet was then rebooted normally (`systemctl reboot` works on Nura) and
+came back on the installed `#3` kernel with no test marker. Full logs:
+`backups/kernel-bisect-2026-10-29/T4-boot-evidence.txt` and
+`T5-boot-evidence.txt` (not in git; they contain the device serial).
+
+**Rule for any future RAM test:** build the test kernel with
+`CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`, or the rootfs modules will be refused.

@@ -58,8 +58,8 @@ kernel config has `CONFIG_DEBUG_INFO_BTF_MODULES=y` and does not set
 the installed modules were built against (different compiler point release,
 different config) **refuses every module**. The display (`DRM_MSM=m`) and
 Wi-Fi (`ath10k`) are modules, so the result is a live kernel with a black
-screen and no network. This is the leading explanation for the black screens
-on 2026-10-25, not yet proven on the device. For RAM tests, build the test
+screen and no network. This is the cause of the black screens
+on 2026-10-25, confirmed on 2026-10-30 (docs/nura-kernel-bisect.md). For RAM tests, build the test
 kernel with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`.
 
 ## Validate changes offline, not on the device

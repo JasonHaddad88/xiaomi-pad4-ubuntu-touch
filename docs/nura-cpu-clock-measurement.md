@@ -104,3 +104,22 @@ between:
 
 Do not write perf states before that question is answered: with an
 unprogrammed LUT, requesting an index selects an undefined voltage.
+
+## Result (2026-10-30)
+
+
+- **The OSM is switched off.** Read live from the hardware: `pwrcl` (A53)
+  `VERSION = 0x00070000`, `ENABLE = 0`, `PERF_STATE = 0`; `perfcl` (A73)
+  `VERSION = 0`, `ENABLE = 0`, `PERF_STATE = 0`. The bootloader never enables
+  it. The current fixed clocks (A53 1378 MHz, A73 598 MHz) are set some other
+  way at boot.
+- **Reading these registers is safe.** Every read survived. Nothing hung.
+- **The small-patch route is dead.** Mainline `qcom-cpufreq-hw` checks
+  `ENABLE` bit 0 and gives up when it is 0. The sdm660-mainline tree has no
+  driver that *programs* OSM, and no sdm630/636/660 device tree has CPU
+  scaling. (`pmdomain/qcom/cpr.c` is the older CPR for msm8916/qcs404, not
+  the CPRh this SoC needs.)
+- Getting more speed means porting OSM programming plus CPRh voltage control,
+  which is what downstream `clk-cpu-osm.c` does. That is a large job, and
+  setting voltages wrongly can crash or damage the chip.
+

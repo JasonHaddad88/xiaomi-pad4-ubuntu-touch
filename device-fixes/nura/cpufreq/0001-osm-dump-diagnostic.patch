@@ -9,28 +9,25 @@ index 483f1c5..2aace6c 100644
 +obj-y += osm-dump.o
 diff --git a/drivers/soc/qcom/osm-dump.c b/drivers/soc/qcom/osm-dump.c
 new file mode 100644
-index 0000000..e27c594
+index 0000000..00b86ff
 --- /dev/null
 +++ b/drivers/soc/qcom/osm-dump.c
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,101 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
-+ * Temporary diagnostic for SDM660 (clover). STRICTLY READ-ONLY: every
-+ * access is readl_relaxed(), nothing is ever written.
++ * Temporary diagnostic for SDM660 (clover): dump the Operating State Manager
++ * register state at boot. The register accesses are STRICTLY READ-ONLY.
 + *
-+ * v5: adds the two CPRh voltage controllers to the v4 OSM dump. The OSM is
-+ * off at boot (v4: ENABLE = 0 on both clusters). Before any frequency change
-+ * we need to know whether the CPU rail voltage is under control at all:
-+ * is CPRh running, in what mode, at which corner and voltage, and did the
-+ * firmware load a corner table?
++ * v4: no deliberate panic. Earlier versions never produced output because
++ * the test kernels could not load the rootfs modules (BTF mismatch, see
++ * device-fixes/nura/cpufreq/README-osm-dump.md), so there was no display and
++ * no network. Built with CONFIG_MODULE_ALLOW_BTF_MISMATCH=y this kernel can
++ * finish booting, and the dump is read from dmesg over SSH.
 + *
-+ * Register map from clover's downstream cpr3-regulator.c. Controller
-+ * addresses, base voltage (400 mV) and step (4 mV) from clover's Android
-+ * device tree (cprh-ctrl@179c8000 = pwrcl/A53, cprh-ctrl@179c4000 =
-+ * perfcl/A73, both "qcom,cprh-sdm660-kbss-regulator").
++ * Each access is announced first, so if a read ever does wedge the SoC the
++ * last line in ramoops (/sys/fs/pstore, after a WARM reset) names it.
 + *
-+ * Each access is announced first so that, if one ever wedged the SoC, the
-+ * last line in ramoops (after a WARM reset) would name it.
++ * Offsets from downstream clk-cpu-osm.c (LineageOS, sdm660).
 + */
 +
 +#include <linux/init.h>
@@ -39,133 +36,80 @@ index 0000000..e27c594
 +#include <linux/printk.h>
 +#include <linux/delay.h>
 +
-+/* --- OSM (summary only; v4 already walked it) --- */
-+#define OSM_PWRCL_BASE		0x179c0000
-+#define OSM_PERFCL_BASE		0x179c2000
++#define OSM_PWRCL_BASE		0x179c0000	/* A53 "pwrcl"  */
++#define OSM_PERFCL_BASE		0x179c2000	/* A73 "perfcl" */
 +#define OSM_WIN_SIZE		0x2000
++
 +#define OSM_VERSION_REG		0x0000
 +#define OSM_ENABLE_REG		0x1004
++#define OSM_FREQ_REG		0x1154
++#define OSM_VOLT_REG		0x1158
 +#define OSM_PERF_STATE_REG	0x1f10
 +
-+/* --- CPRh --- */
-+#define CPRH_PWRCL_BASE		0x179c8000
-+#define CPRH_PERFCL_BASE	0x179c4000
-+#define CPRH_WIN_SIZE		0x4000
-+
-+#define CPR3_REG_CPR_VERSION	0x0000
-+#define CPR3_REG_CPR_CTL	0x0004	/* bit0: CPR loop enable */
-+#define CPR3_REG_CPR_STATUS	0x0008	/* bit0: busy */
-+#define CPR3_REG_LAST_MEAS	0x07f8
-+#define CPR3_REG_IRQ_STATUS	0x0824
-+#define CPR3_REG_HW_CLOSED_LOOP	0x3000	/* 0 = HW closed loop ON, 1 = OFF */
-+#define CPRH_REG_CORNER(n)	(0x3a00 + 4 * (n))
-+#define CPRH_NUM_CORNERS	40
-+#define CPRH_REG_CTL		0x3aa0
-+#define CPRH_REG_STATUS		0x3aa4
-+#define CPRH_REG_CORNER_BAND	0x3aa8
-+
-+#define DT_BASE_MV		400	/* qcom,voltage-base = 400000 */
-+#define DT_STEP_MV		4	/* qcom,voltage-step = 4000 */
++#define OSM_REG_SIZE		32
++#define OSM_TABLE_SIZE		40
++#define XO_KHZ			19200
 +
 +static void __init say(const char *what, u32 off)
 +{
 +	pr_emerg("osm-dump: ABOUT TO READ %s (+0x%04x)\n", what, off);
-+	mdelay(20);
++	mdelay(30);
 +}
 +
-+static u32 __init rd(void __iomem *p, const char *what, u32 off)
++static void __init osm_dump_cluster(const char *name, phys_addr_t base)
 +{
-+	say(what, off);
-+	return readl_relaxed(p + off);
-+}
++	void __iomem *p;
++	u32 enable;
++	int i;
 +
-+static void __init osm_summary(const char *name, phys_addr_t base)
-+{
-+	void __iomem *p = ioremap(base, OSM_WIN_SIZE);
-+	u32 en;
-+
++	pr_emerg("osm-dump: %s: ioremap(%pa, 0x%x)\n", name, &base, OSM_WIN_SIZE);
++	p = ioremap(base, OSM_WIN_SIZE);
 +	if (!p) {
 +		pr_emerg("osm-dump: %s: ioremap FAILED\n", name);
 +		return;
 +	}
-+	en = rd(p, "OSM ENABLE", OSM_ENABLE_REG);
-+	pr_emerg("osm-dump: OSM %s: VERSION=0x%08x ENABLE=0x%08x (%s) PERF_STATE=0x%08x\n",
-+		 name, rd(p, "OSM VERSION", OSM_VERSION_REG), en,
-+		 (en & 1) ? "ENABLED" : "disabled",
-+		 rd(p, "OSM PERF_STATE", OSM_PERF_STATE_REG));
-+	iounmap(p);
-+}
 +
-+static void __init cprh_dump(const char *name, phys_addr_t base)
-+{
-+	void __iomem *p = ioremap(base, CPRH_WIN_SIZE);
-+	u32 ctl, hwcl, hctl, hst, band, v;
-+	unsigned int base_mv, mult_mv, i, nz = 0;
++	say("VERSION", OSM_VERSION_REG);
++	pr_emerg("osm-dump: %s: VERSION = 0x%08x  <-- first read survived\n",
++		 name, readl_relaxed(p + OSM_VERSION_REG));
 +
-+	if (!p) {
-+		pr_emerg("osm-dump: CPRh %s: ioremap FAILED\n", name);
-+		return;
++	say("ENABLE", OSM_ENABLE_REG);
++	enable = readl_relaxed(p + OSM_ENABLE_REG);
++	pr_emerg("osm-dump: %s: ENABLE = 0x%08x -> OSM %s\n", name, enable,
++		 (enable & 1) ? "ENABLED" : "DISABLED");
++
++	say("PERF_STATE", OSM_PERF_STATE_REG);
++	pr_emerg("osm-dump: %s: PERF_STATE = 0x%08x\n", name,
++		 readl_relaxed(p + OSM_PERF_STATE_REG));
++
++	if (!(enable & 1)) {
++		pr_emerg("osm-dump: %s: OSM disabled - skipping LUT walk\n", name);
++		goto out;
 +	}
-+	pr_emerg("osm-dump: ---- CPRh %s @ %pa ----\n", name, &base);
 +
-+	v = rd(p, "CPR VERSION", CPR3_REG_CPR_VERSION);
-+	pr_emerg("osm-dump: CPRh %s: VERSION=0x%08x  <-- first read survived\n", name, v);
++	say("LUT rows 0..39", OSM_FREQ_REG);
++	for (i = 0; i < OSM_TABLE_SIZE; i++) {
++		u32 off = i * OSM_REG_SIZE;
++		u32 freq = readl_relaxed(p + OSM_FREQ_REG + off);
++		u32 volt = readl_relaxed(p + OSM_VOLT_REG + off);
++		u32 lval = freq & 0xff;
++		u32 src = (freq >> 30) & 0x3;
 +
-+	ctl = rd(p, "CPR_CTL", CPR3_REG_CPR_CTL);
-+	pr_emerg("osm-dump: CPRh %s: CPR_CTL=0x%08x -> CPR loop %s\n", name, ctl,
-+		 (ctl & 1) ? "ENABLED" : "disabled");
-+
-+	v = rd(p, "CPR_STATUS", CPR3_REG_CPR_STATUS);
-+	pr_emerg("osm-dump: CPRh %s: CPR_STATUS=0x%08x (busy=%u)\n", name, v, v & 1);
-+
-+	hwcl = rd(p, "HW_CLOSED_LOOP", CPR3_REG_HW_CLOSED_LOOP);
-+	pr_emerg("osm-dump: CPRh %s: HW_CLOSED_LOOP=0x%08x -> hardware closed loop %s\n",
-+		 name, hwcl, (hwcl & 1) ? "OFF" : "ON");
-+
-+	hctl = rd(p, "CPRH_CTL", CPRH_REG_CTL);
-+	base_mv = (hctl >> 1) & 0x3ff;
-+	mult_mv = (hctl >> 25) & 0xf;
-+	pr_emerg("osm-dump: CPRh %s: CPRH_CTL=0x%08x -> OSM interface %s, base=%u mV, step=%u mV, init_mode=%u\n",
-+		 name, hctl, (hctl & 1) ? "ENABLED" : "disabled", base_mv, mult_mv,
-+		 (hctl >> 11) & 0x3f);
-+
-+	hst = rd(p, "CPRH_STATUS", CPRH_REG_STATUS);
-+	pr_emerg("osm-dump: CPRh %s: CPRH_STATUS=0x%08x -> current corner=%u, last voltage field=%u (raw)\n",
-+		 name, hst, hst & 0x3f, (hst >> 6) & 0xfff);
-+
-+	band = rd(p, "CPRH_CORNER_BAND", CPRH_REG_CORNER_BAND);
-+	pr_emerg("osm-dump: CPRh %s: CORNER_BAND=0x%08x\n", name, band);
-+
-+	pr_emerg("osm-dump: CPRh %s: LAST_MEASUREMENT=0x%08x IRQ_STATUS=0x%08x\n", name,
-+		 rd(p, "LAST_MEASUREMENT", CPR3_REG_LAST_MEAS),
-+		 rd(p, "IRQ_STATUS", CPR3_REG_IRQ_STATUS));
-+
-+	say("CPRH corner table 0..39", CPRH_REG_CORNER(0));
-+	for (i = 0; i < CPRH_NUM_CORNERS; i++) {
-+		u32 c = readl_relaxed(p + CPRH_REG_CORNER(i));
-+		u32 init = c & 0xff, floor = (c >> 8) & 0xff;
-+
-+		if (!c)
-+			continue;
-+		nz++;
-+		pr_emerg("osm-dump: CPRh %s corner[%02u]=0x%08x init=%3u steps (%4u mV) floor=%3u steps (%4u mV) qdelta=%u ro=%u cl_off=%u lkv=%u\n",
-+			 name, i, c, init, DT_BASE_MV + init * DT_STEP_MV,
-+			 floor, DT_BASE_MV + floor * DT_STEP_MV,
-+			 (c >> 16) & 0x1ff, (c >> 25) & 0xf, (c >> 29) & 1, (c >> 31) & 1);
++		pr_emerg("osm-dump: %s[%02d] freq=0x%08x volt=0x%08x | src=%u lval=%3u -> %6u kHz, uv=%u\n",
++			 name, i, freq, volt, src, lval, lval * XO_KHZ,
++			 volt & 0xfff);
 +	}
-+	pr_emerg("osm-dump: CPRh %s: %u of %u corner entries non-zero\n", name, nz, CPRH_NUM_CORNERS);
 +
++out:
 +	iounmap(p);
-+	pr_emerg("osm-dump: CPRh %s: done\n", name);
++	pr_emerg("osm-dump: %s: done\n", name);
 +}
 +
 +static int __init osm_dump_init(void)
 +{
-+	pr_emerg("osm-dump: ======== SDM660 OSM + CPRh state (v5) ========\n");
-+	osm_summary("pwrcl-A53", OSM_PWRCL_BASE);
-+	osm_summary("perfcl-A73", OSM_PERFCL_BASE);
-+	cprh_dump("pwrcl-A53", CPRH_PWRCL_BASE);
-+	cprh_dump("perfcl-A73", CPRH_PERFCL_BASE);
++	pr_emerg("osm-dump: ======== SDM660 OSM state (v4) ========\n");
++	osm_dump_cluster("pwrcl-A53", OSM_PWRCL_BASE);
++	osm_dump_cluster("perfcl-A73", OSM_PERFCL_BASE);
 +	pr_emerg("osm-dump: ======== all reads survived ========\n");
 +	return 0;
 +}

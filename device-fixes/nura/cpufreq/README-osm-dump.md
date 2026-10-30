@@ -38,7 +38,8 @@
 
 # Read-only OSM diagnostic kernel
 
-`0001-osm-dump-diagnostic.patch` (now v5: OSM summary plus the two CPRh voltage
+`0001-osm-dump-diagnostic.patch` (v4, OSM only. v5 also read the CPRh voltage controllers and
+**panics clover at +0x3000**, see docs/nura-kernel-bisect.md T6; v5 is kept outside git) adds the dump. Earlier text: (now v5: OSM summary plus the two CPRh voltage
 controllers, read-only; see docs/nura-kernel-bisect.md, T6) adds `drivers/soc/qcom/osm-dump.c` (built
 unconditionally via `obj-y`) and a `late_initcall` that dumps SDM660's
 Operating State Manager state to dmesg at boot.

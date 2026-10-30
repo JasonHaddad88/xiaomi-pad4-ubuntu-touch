@@ -134,7 +134,7 @@ came back on the installed `#3` kernel with no test marker. Full logs:
 **Rule for any future RAM test:** build the test kernel with
 `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`, or the rootfs modules will be refused.
 
-## T6: read-only CPRh voltage-controller dump (prepared 2026-10-30, not run yet)
+## T6: read-only CPRh voltage-controller dump (run 2026-10-30, see result below)
 
 `T6-LOCAL-kernel-BTFALLOW+OSM-CPRh-DUMPv5+installed-dtb.img`, md5
 `c898dc52c96be883aea761bb6a0f8ca6`. It is T5's proven kernel (BTF mismatch
@@ -172,3 +172,47 @@ cat /sys/kernel/debug/regulator/regulator_summary   # look for the APC / CPU rai
 ```
 
 Then `sudo systemctl reboot` returns to the installed kernel.
+
+### T6 result (2026-10-30): the CPR loop is off, and the CPRh block is not accessible
+
+The kernel panicked during the dump; the screen showed it (photo kept as
+`backups/kernel-bisect-2026-10-29/T6-panic-photo.jpg`). In order:
+
+```
+OSM pwrcl-A53:  VERSION=0x00000000 ENABLE=0x00000000 (disabled)
+OSM perfcl-A73: VERSION=0x00000000 ENABLE=0x00000000 (disabled)
+---- CPRh pwrcl-A53 @ 0x179c8000 ----
+CPRh pwrcl-A53: VERSION=0x40020000            <-- first read survived
+CPRh pwrcl-A53: CPR_CTL=0xfffffe3e -> CPR loop disabled
+CPRh pwrcl-A53: CPR_STATUS=0x00000001 (busy=1)
+ABOUT TO READ HW_CLOSED_LOOP (+0x3000)
+Internal error: synchronous external abort ... pc : cprh_dump+0x128/0x334
+Kernel panic - not syncing: Attempted to kill init!
+```
+
+- **The CPR closed loop is not running** on the A53 voltage controller at
+  boot (`CPR_CTL` bit 0 = 0). The A73 controller was never reached.
+- **The CPRh register block from `+0x3000` up aborts** when read from Linux.
+  Clover's Android DT gives this controller a `core_clk` =
+  `GCC_HMSS_RBCPR_CLK` (gcc id 72 downstream, 59 in mainline), and Android's
+  `cpr3-regulator.c` enables bus, iface and core clocks before touching any
+  CPRh register. The low registers answering while the high block aborts
+  points to that clock being off, i.e. an unclocked region rather than a
+  TrustZone lock. **Not proven.**
+- The abort is a refused read on the bus, not a write; nothing was changed.
+  It panicked only because the oops hit PID 1 during an initcall.
+- `pstore: backend (ramoops) writing error (-28)`: ramoops could not store
+  the panic record (`record-size` 0x1000 is too small), so even a warm reset
+  would not have saved this dump. The photo was the only record.
+- Unexplained: `OSM pwrcl VERSION` read `0x00000000` here but `0x00070000`
+  in T5, from the same register. Don't build on either value.
+
+**Consequence:** nothing is running a voltage control loop on the A53 rail
+at boot, so the CPU rail voltage is whatever the boot chain left. Raising
+clocks without porting and running CPRh (clocks, corner tables, closed
+loop) is not voltage-safe. That confirms the large-port conclusion of
+docs/nura-pr239-review.md.
+
+**Hazard handled:** v5 panics clover every boot at that read. The repo's
+`0001-osm-dump-diagnostic.patch` was reverted to the safe v4; v5 stays
+outside git in `~/osm-diag/kept/`.

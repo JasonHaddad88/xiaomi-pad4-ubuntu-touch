@@ -1,0 +1,166 @@
+From 0a79305aaa21650b1e07b06931f8eca3c98da762 Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Sat, 31 Oct 2026 22:33:57 +0200
+Subject: [PATCH 25/27] arm64: dts: qcom: sdm660-xiaomi-clover: add the TAS2557
+ stereo speakers
+
+---
+ .../dts/qcom/sdm660-xiaomi-clover-common.dtsi | 107 +++++++++++++++++-
+ 1 file changed, 105 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi b/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
+index 43bef7707..5dd56c3c1 100644
+--- a/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm660-xiaomi-clover-common.dtsi
+@@ -185,6 +185,64 @@ bluetooth {
+ 	};
+ };
+ 
++&blsp_i2c6 {
++	status = "okay";
++
++	/*
++	 * Mi Pad 4 has a stereo pair of TAS2557 smart amplifiers, one per
++	 * speaker. Both are on this bus; the downstream kernel describes them
++	 * as a single "ti,tas2557s" node carrying ti,left-channel = <0x4c> and
++	 * ti,right-channel = <0x4e>, which the mainline driver instead models
++	 * as two independent codecs selected by ti,channel.
++	 *
++	 * Addresses and GPIOs were read from the downstream device tree on the
++	 * device itself (/proc/device-tree under Ubuntu Touch):
++	 *   ti,reset-gpio-left  = <&tlmm 80>   ti,irq-gpio-left  = <&tlmm 28>
++	 *   ti,reset-gpio-right = <&tlmm 48>   ti,irq-gpio-right = <&tlmm 55>
++	 *
++	 * The interrupt lines are deliberately NOT wired up. gpio28 is claimed by
++	 * this board's own sound node: cdc-dmic-default-state muxes it to
++	 * dmic2_clk, and clover's `sound` node lists that state in pinctrl-0. A
++	 * level-triggered IRQ on a pin being driven as a DMIC clock never
++	 * deasserts, which hangs the machine - observed as a frozen UI, a display
++	 * that will not blank, and ssh starving out. The amplifiers do not need
++	 * the IRQ to play audio; it only reports faults. Whether gpio28 really is
++	 * the amp IRQ on this board, or whether clover's mainline DMIC pinctrl is
++	 * mistaken, is unresolved - so neither IRQ is claimed.
++	 *
++	 * sound-name-prefix is required because two instances of the same
++	 * codec would otherwise register colliding control and widget names
++	 * ("Speaker Playback Volume", "ASI1", "ASI2").
++	 */
++	tas2557_l: codec@4c {
++		compatible = "ti,tas2557";
++		reg = <0x4c>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Left Spk";
++		firmware-name = "tas2557s_uCDSP.bin";
++
++		reset-gpios = <&tlmm 80 GPIO_ACTIVE_LOW>;
++
++		vbat-supply = <&vph_pwr>;
++
++		ti,channel = <0>;
++	};
++
++	tas2557_r: codec@4e {
++		compatible = "ti,tas2557";
++		reg = <0x4e>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Right Spk";
++		firmware-name = "tas2557s_uCDSP.bin";
++
++		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
++
++		vbat-supply = <&vph_pwr>;
++
++		ti,channel = <1>;
++	};
++};
++
+ &mdss {
+ 	status = "okay";
+ };
+@@ -194,6 +252,12 @@ &mmss_smmu {
+ };
+ 
+ &q6afedai {
++	/* Primary MI2S feeds the stereo TAS2557 speaker amplifiers. */
++	dai@16 {
++		reg = <PRIMARY_MI2S_RX>;
++		qcom,sd-lines = <0>;
++	};
++
+ 	dai@81 {
+ 		reg = <INT0_MI2S_RX>;
+ 		qcom,sd-lines = <0 1>;
+@@ -651,7 +715,8 @@ &sound {
+ 	compatible = "qcom,sdm660-internal-sndcard";
+ 	model = "Xiaomi Mi Pad 4";
+ 	pinctrl-0 = <&cdc_pdm_default>,
+-			<&cdc_dmic_default>;
++			<&cdc_dmic_default>,
++			<&pri_mi2s_active>;
+ 	pinctrl-names = "default";
+ 	audio-routing = "RX_BIAS", "Digital MCLK",
+ 			"INT_LDO_H", "Digital MCLK",
+@@ -665,7 +730,9 @@ &sound {
+ 			"PDM_RX3", "Digital PDM_RX3",
+ 			"Digital LPASS_PDM_TX", "PDM_TX",
+ 			"AMIC1", "MIC BIAS External1",
+-			"AMIC2", "MIC BIAS External2";
++			"AMIC2", "MIC BIAS External2",
++			"Left Spk ASI2", "Primary MI2S Playback",
++			"Right Spk ASI2", "Primary MI2S Playback";
+ 	mm1-dai-link {
+ 		link-name = "MultiMedia1";
+ 		cpu {
+@@ -692,6 +759,19 @@ codec {
+ 		};
+ 	};
+ 
++	pri-mi2s-dai-link {
++		link-name = "Primary MI2S Playback";
++		cpu {
++			sound-dai = <&q6afedai PRIMARY_MI2S_RX>;
++		};
++		platform {
++			sound-dai = <&q6routing>;
++		};
++		codec {
++			sound-dai = <&tas2557_l>, <&tas2557_r>;
++		};
++	};
++
+ 	int3-mi2s-dai-link {
+ 		link-name = "Internal MI2S Capture";
+ 		cpu {
+@@ -730,6 +810,29 @@ gpio_hall_sensor_default: gpio-hall-sensor-default-state {
+ 		drive-strength = <6>;
+ 		bias-pull-up;
+ 	};
++
++	pri_mi2s_active: pri-mi2s-active-state {
++		sck-pins {
++			pins = "gpio12";
++			function = "pri_mi2s";
++			drive-strength = <8>;
++			bias-disable;
++		};
++
++		ws-pins {
++			pins = "gpio13";
++			function = "pri_mi2s_ws";
++			drive-strength = <8>;
++			bias-disable;
++		};
++
++		data-pins {
++			pins = "gpio14", "gpio15";
++			function = "pri_mi2s";
++			drive-strength = <8>;
++			bias-disable;
++		};
++	};
+ };
+ 
+ &usb3 {
+-- 
+2.53.0
+

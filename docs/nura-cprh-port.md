@@ -336,3 +336,63 @@ needs, in order:
 3. clover's bin-1 DTB with the TAS2557 speaker patch re-applied and the
    capacity workaround dropped;
 4. the current boot image kept as the fallback.
+
+---
+
+# Making it permanent (in progress, 2026-10-31)
+
+## Release kernel r100 (built, verified, not installed)
+
+Branch `release` = the 24 port patches + three commits:
+
+1. `sdm660-xiaomi-clover: add the TAS2557 stereo speakers`: the existing
+   source patch from `device-fixes/nura/speakers/`. Until now the speakers
+   existed only as a hand-edited DTB in the installed boot image, which any
+   kernel update or initramfs rebuild would silently have dropped.
+2. `sda660-xiaomi-clover: enable CPU DVFS (speed bin 1)`: the bin-1 tables in
+   the DTB postmarketOS actually installs; the per-bin test DTBs are dropped.
+3. `release: open both bring-up gates by default (OSM 12, CPRh 5)`.
+
+Package `linux-postmarketos-qcom-sdm660-7.0.14-r100` (27 patches; pkgrel 100
+so it sorts above the installed r2). Verified from the package itself:
+`ARM_QCOM_CPUFREQ_HW`, `QCOM_CPR3` and `QCOM_SPM` built in, schedutil the
+default governor, 637 modules. The release DTB was diffed against the DTB
+installed today with every phandle resolved to its node: **the 21
+speaker-related properties are identical**, and the other differences are the
+DVFS additions. The capacity workaround is gone because the source carries
+the stock values, which are correct now that Gold is fast.
+
+Patches: `device-fixes/nura/cpufreq/cprh-osm-release/`.
+
+## Backups first
+
+Fresh images of both filesystems, taken with `e2image -ra` (used blocks only),
+gzip-compressed over SSH, with an md5 taken on the tablet while streaming:
+
+- `/boot`: ext2 on `mmcblk1p13`, which is the **Android `system` partition
+  (3 GiB)**. The boot filesystem is only its first 504 MiB (63 MiB used). A
+  first attempt `dd`'d the whole 3 GiB partition at ~0.4 MB/s Wi-Fi speed and
+  was stopped.
+- `/`: ext4 on `mmcblk1p64` (`userdata`, 49 GiB, 2.8 GiB used).
+
+## Install plan (needs the user's go-ahead)
+
+1. Back on the installed system, copy the r100 `.apk` over and
+   `apk add --allow-untrusted` it. postmarketOS's installkernel/mkinitfs
+   triggers rebuild the boot image from the package's DTB and **flash the boot
+   partition** (`deviceinfo_flash_kernel_on_update="true"`), and replace
+   `/lib/modules/7.0.14-sdm660` with the package's own modules.
+2. Check that apk recorded the file install as a checksum pin in
+   `/etc/apk/world`, so `apk upgrade` can't silently swap it for an upstream
+   kernel that has neither DVFS nor speakers.
+
+**Fallbacks, honestly:**
+
+- Once the modules are replaced, `fastboot boot` of the *old* boot image is
+  **not** a clean fallback: the old r2 kernel doesn't allow BTF mismatches and
+  would refuse the new modules (the black-screen failure from 2026-10-25).
+- **First fallback:** the r100 kernel with `qcom_cpufreq_hw.osm_setup_stop=0`
+  on the cmdline (via `fastboot boot`) gives the old fixed clocks with
+  everything else unchanged.
+- **Full restore:** flash `boot-INSTALLED-speakers+capfix.img` to the boot
+  partition and write the rootfs backup back.

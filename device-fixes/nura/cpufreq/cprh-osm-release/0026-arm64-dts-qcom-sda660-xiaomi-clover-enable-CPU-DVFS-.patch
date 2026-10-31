@@ -1,0 +1,112 @@
+From b51e108618a47e27648e98265d5b1353ff15ad0e Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Sat, 31 Oct 2026 22:33:57 +0200
+Subject: [PATCH 26/27] arm64: dts: qcom: sda660-xiaomi-clover: enable CPU DVFS
+ (speed bin 1)
+
+Fold the bin-1 CPU DVFS into the DTB postmarketOS actually installs and
+drop the four per-bin test DTBs. clover's fuses read speed bin 1 (logged
+by the CPR3 driver); bins 0/3/4 tables stay in the tree for other units.
+---
+ arch/arm64/boot/dts/qcom/Makefile                        | 4 ----
+ .../boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts  | 9 ---------
+ .../boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts  | 9 ---------
+ .../boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts  | 9 ---------
+ .../boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts  | 9 ---------
+ arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts        | 4 ++++
+ 6 files changed, 4 insertions(+), 40 deletions(-)
+ delete mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
+ delete mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
+ delete mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
+ delete mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
+
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index ad2992231..2eed0838a 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -255,10 +255,6 @@ sc8280xp-microsoft-blackrock-el2-dtbs	:= sc8280xp-microsoft-blackrock.dtb sc8280
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-microsoft-blackrock.dtb sc8280xp-microsoft-blackrock-el2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sda660-inforce-ifc6560.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover.dtb
+-dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin0.dtb
+-dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin1.dtb
+-dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin3.dtb
+-dtb-$(CONFIG_ARCH_QCOM)	+= sda660-xiaomi-clover-cpufreq-bin4.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-lenovo-tbx605f.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm450-motorola-ali.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm630-nokia-pl2.dtb
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
+deleted file mode 100644
+index 1a27bf9c3..000000000
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin0.dts
++++ /dev/null
+@@ -1,9 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-/*
+- * TEST ONLY: clover with CPU DVFS, speed bin 0.
+- * Boot it with fastboot boot and the bring-up gates, never flash it untested.
+- */
+-
+-#include "sda660-xiaomi-clover.dts"
+-#include "sdm660-cprh-osm.dtsi"
+-#include "sda660-xiaomi-clover-cpufreq-bin0.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
+deleted file mode 100644
+index 18fb81bef..000000000
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin1.dts
++++ /dev/null
+@@ -1,9 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-/*
+- * TEST ONLY: clover with CPU DVFS, speed bin 1.
+- * Boot it with fastboot boot and the bring-up gates, never flash it untested.
+- */
+-
+-#include "sda660-xiaomi-clover.dts"
+-#include "sdm660-cprh-osm.dtsi"
+-#include "sda660-xiaomi-clover-cpufreq-bin1.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
+deleted file mode 100644
+index 2606e0b35..000000000
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin3.dts
++++ /dev/null
+@@ -1,9 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-/*
+- * TEST ONLY: clover with CPU DVFS, speed bin 3.
+- * Boot it with fastboot boot and the bring-up gates, never flash it untested.
+- */
+-
+-#include "sda660-xiaomi-clover.dts"
+-#include "sdm660-cprh-osm.dtsi"
+-#include "sda660-xiaomi-clover-cpufreq-bin3.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
+deleted file mode 100644
+index 89250ef81..000000000
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-cpufreq-bin4.dts
++++ /dev/null
+@@ -1,9 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-/*
+- * TEST ONLY: clover with CPU DVFS, speed bin 4.
+- * Boot it with fastboot boot and the bring-up gates, never flash it untested.
+- */
+-
+-#include "sda660-xiaomi-clover.dts"
+-#include "sdm660-cprh-osm.dtsi"
+-#include "sda660-xiaomi-clover-cpufreq-bin4.dtsi"
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
+index d2ba98db8..37386d77d 100644
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
+@@ -15,3 +15,7 @@ &remoteproc_mss {
+ 
+ 	status = "okay";
+ };
++
++/* CPU DVFS (CPRh + OSM). clover units are speed bin 1: Gold 2208, Silver 1843.2 MHz. */
++#include "sdm660-cprh-osm.dtsi"
++#include "sda660-xiaomi-clover-cpufreq-bin1.dtsi"
+-- 
+2.53.0
+

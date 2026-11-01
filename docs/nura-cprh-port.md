@@ -396,3 +396,73 @@ gzip-compressed over SSH, with an md5 taken on the tablet while streaming:
   everything else unchanged.
 - **Full restore:** flash `boot-INSTALLED-speakers+capfix.img` to the boot
   partition and write the rootfs backup back.
+
+---
+
+# INSTALLED (2026-11-01): CPU DVFS is permanent on clover
+
+## Backups taken first, and verified
+
+`backups/nura-rootfs-2026-10-31/` (not in git):
+
+- `boot-ext2.e2image.raw.gz`: `/boot` (ext2 inside `mmcblk1p13`). Device md5
+  `b8a2c1b675c55c03d1123371bc438d2f` = PC md5.
+- `rootfs-ext4.e2image.raw.gz`: `/` (`mmcblk1p64`), 1.18 GB, taken with
+  `e2image -raf` under `systemd-inhibit` on the running installed system.
+  Device md5 `b297c24dd259f9b4d976b54ce0f0a5e8` = PC md5. `e2fsck -fn` on the
+  restored image reports only live-copy artefacts (unreplayed journal, a few
+  orphaned inodes, one `upower` history file being rewritten, bitmap
+  counters). `e2fsck -fy` on a throwaway copy fixed them and the re-check was
+  clean (exit 0), so the backup restores to a consistent filesystem.
+- The installed boot partition from before:
+  `backups/nura-internal-2026-10-25/boot-INSTALLED-speakers+capfix.img`.
+
+What went wrong on the way, recorded so it isn't repeated:
+
+- `dd` of `mmcblk1p13` copied the whole 3 GiB Android `system` partition, not
+  the 504 MiB boot fs inside it.
+- `e2image -ra` refuses a filesystem mounted rw: it produced empty output
+  whose md5s "matched" because both sides were empty. Use `-raf`.
+- A 45-minute stream died when the **Wi-Fi firmware crashed** (`ath10k_snoc:
+  firmware crashed!` after `CTRL-EVENT-BEACON-LOSS`). That was not the T11
+  kernel: the journal shows it running until a clean user power-off at
+  23:47. It is the open ath10k crash issue.
+- A detached backup from a previous session kept running and held the output
+  file, so a fresh redirect failed with ENOENT.
+
+## Install
+
+`apk add --allow-untrusted linux-postmarketos-qcom-sdm660-7.0.14-r100.apk`:
+r2 -> r100, exit 0. mkinitfs rebuilt the initramfs, appended
+`qcom/sda660-xiaomi-clover`, and flashed `boot` (`mmcblk1p12`);
+`/boot/boot.img` md5 = partition md5 = `a2974d9946203fc4cc0889596f1b5cb2`.
+`/etc/apk/world` holds `linux-postmarketos-qcom-sdm660><Q1vQ617w10xm54VCrph8GQAOKIrs8=`,
+a checksum pin, so `apk upgrade` cannot swap in an upstream kernel without
+DVFS and speakers. To take an upstream kernel later, remove that pin
+deliberately.
+
+## Verified after a normal reboot (no test cmdline)
+
+```
+kernel #101-postmarketos-qcom-sdm660
+cpu cpu0: osm-setup: domain 0 step 12 ok (cpr-loop)
+cpu cpu1: osm-setup: domain 1 step 12 ok (cpr-loop)
+qcom-cpr3: speed bin 1, CPR fusing revision 2
+no err/warn from CPR / OSM / cpufreq
+policy0 (Silver, cpus 0 5 6 7) schedutil, max 1843 MHz
+policy1 (Gold,   cpus 1-4)     schedutil, max 2208 MHz
+cpu_capacity: Gold 1024, Silver 534
+under load (thread CPU time): Gold 2168-2189 MHz, Silver 1833-1838 MHz
+idle: Silver 300 MHz
+```
+
+Speakers: to be checked by the user (requested to do it themselves).
+
+## If something goes wrong
+
+1. **Quick:** `fastboot boot` an r100 boot image with
+   `qcom_cpufreq_hw.osm_setup_stop=0` on the cmdline. That gives the old fixed
+   clocks with everything else unchanged.
+2. **Full restore:** flash `boot-INSTALLED-speakers+capfix.img` to `boot`, and
+   write the rootfs image back (`zcat ... | dd of=/dev/mmcblk1p64` from a
+   recovery environment), then `e2fsck -fy`.

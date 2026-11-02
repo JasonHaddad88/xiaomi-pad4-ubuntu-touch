@@ -105,9 +105,35 @@ connection, with working DNS and browsing.
 
 ## Keeping it
 
-`pkgrel=99` is what stops an upgrade clobbering this. If Alpine ever ships a 2.12 the local
-package stays pinned at 2.11 — rebuild against the new version rather than letting `apk`
-pull the WEP-less one in.
+**`pkgrel=99` alone does not keep it.** On 1 November 2026 an update run from GNOME
+Software (apk-tools 3) replaced `2.11-r99` with the repository's `2.11-r4` — a *lower*
+release — because the local package is in no repository and nothing in `/etc/apk/world`
+asked for it. The next WEP activation failed with the error quoted above, and since the
+saved profile already existed the tablet never prompted for a password, it just didn't
+connect. The kernel installed the same way survived that update, because its file install
+had left a checksum pin in `world`.
+
+Check that both pins are there after installing:
+
+```sh
+grep wpa /etc/apk/world
+# wpa_supplicant><Q1...=
+# wpa_supplicant-systemd><Q1...=
+```
+
+and that the daemon no longer advertises `wep_disabled`:
+
+```sh
+sudo busctl get-property fi.w1.wpa_supplicant1 /fi/w1/wpa_supplicant1 \
+    fi.w1.wpa_supplicant1 Capabilities
+```
+
+Reinstalled with pins on 2 November 2026. If Alpine ever ships a 2.12, rebuild against it
+rather than removing the pin and letting `apk` pull the WEP-less one in.
+
+Run the install as a transient root unit (`sudo systemd-run --unit=... /bin/bash
+script.sh`) when working over SSH via Wi-Fi: restarting the supplicant drops the link, and
+a `setsid nohup` script started from the SSH session was killed before `apk` even ran.
 
 ## A caution about the network itself
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable the PSCI idle states clover's firmware rejects
+After=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/nura-cpuidle-fix 1
+ExecStop=/usr/local/sbin/nura-cpuidle-fix 0
+
+[Install]
+WantedBy=multi-user.target

@@ -63,3 +63,42 @@ OSI mode, so the likely route is the hierarchical PSCI description
 flattened composite parameters. That is device-tree work, to be tested by RAM
 boot like docs/nura-gpu-speedbin.md. It would allow cluster sleep and possibly
 the RPM's `vlow`/`vmin` system sleep.
+
+## Correct PSCI parameters, found 2026-11-04 (RAM tests T21, T22)
+
+Clover's Android tree (`qcom,lpm-levels`) gives the firmware's encoding:
+CPU mode in bits 0-3, L2 mode in bits 4-7, system mode in bits 8-11,
+affinity level in bits 24-25, and the power-down bit 30 **only** on reset
+(power-collapse) levels. Mainline `sdm630.dtsi` gets two things wrong:
+
+| state | mainline | Android-derived |
+|---|---|---|
+| core retention | `0x40000002` (power-down bit set) | `0x00000002` |
+| L2 dynamic retention / retention / power collapse | `0x400000f2/f3/f4` | `0x41000023/33/43` |
+
+**T21** (`TEST-psci-idle-r100.img`, flattened PC-style states, corrected
+values): core retention ran 539 times with 0 rejections. L2 dynamic retention
+was entered 272 times but rejected 1.76 million times, with power up to
+970 mW. The firmware only accepts a cluster request from the *last* core of
+the cluster: OS-initiated (OSI) semantics.
+
+**T22** (`TEST-psci-osi-r100.img`, md5 `f847b151586ee455e2123883cd141c37`,
+in `backups/psci-idle-2026-11-03/`): a hierarchical PSCI topology. There is
+one `power-domain-cpu-*` per core, under `power-domain-cluster-perf` /
+`-pwr` holding the three L2 states as `domain-idle-state`. CPUs keep only
+their two core states, and `power-domains = <&CPU_PD>, <&apc_cprh N>` with
+names `"psci", "cpr"`. The CPRh driver looks up `"cpr"` by name for exactly
+this case (`qcom_cpr_cpu_pd_index()`). Result:
+
+- `CPUidle PSCI: Initialized CPU PM domain topology using OSI mode`; DVFS and
+  CPRh unaffected (1843 / 2208 MHz)
+- after about 5 min, each cluster had spent 340-350 s in L2 retention, and core
+  power-collapse rejections were rare
+- settled screen-off draw while charging: 567-589 mW, against about 620 mW with
+  the installed workaround (modest: the CPUs were no longer the main consumer)
+- a real 60 s suspend: both clusters entered L2 power collapse (perf +3, pwr +4)
+- RPM `vlow`/`vmin` still 0: the SoC still never reaches XO shutdown, so
+  something outside the CPUs keeps it up (candidates: `mdss_ahb_clk` stuck
+  on at suspend, remote-processor votes)
+
+Not installed yet; it is waiting for an unplugged overnight run on T22.

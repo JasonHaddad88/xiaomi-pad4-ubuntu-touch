@@ -1,0 +1,34 @@
+#!/bin/sh
+# systemd-sleep hook: unbind the USB gadget before suspend when no cable is in.
+#
+# Clover cannot sense the cable being pulled, so after unplugging from a PC the
+# dwc3 controller still holds a configured gadget (postmarketOS USB
+# networking). Suspend then fails every time:
+#   dwc3 a800000.usb: failed to enable ep0out
+#   dwc3 a800000.usb: PM: failed to suspend: error -11
+# and gsd-power does not retry, so the tablet stays awake all day (2026-11-04).
+#
+# With no cable (charger offline), unbinding the gadget leaves dwc3 with no
+# gadget driver, so its suspend has nothing to refuse. It is bound again on
+# resume. With a cable in, nothing is touched.
+# Install: /usr/lib/systemd/system-sleep/nura-usb-gadget-sleep (mode 0755).
+STATE=/run/nura-usb-gadget-unbound
+case "$1" in
+pre)
+	[ "$(cat /sys/class/power_supply/pm660-charger/online 2>/dev/null)" = 1 ] && exit 0
+	for g in /sys/kernel/config/usb_gadget/*; do
+		[ -n "$(cat "$g/UDC" 2>/dev/null)" ] || continue
+		cat "$g/UDC" > "$STATE.$(basename "$g")"
+		echo "" > "$g/UDC" && echo "nura-usb-gadget-sleep: unbound $(basename "$g")"
+	done
+	;;
+post)
+	for f in "$STATE".*; do
+		[ -e "$f" ] || continue
+		g=/sys/kernel/config/usb_gadget/${f#"$STATE".}
+		cat "$f" > "$g/UDC" && echo "nura-usb-gadget-sleep: rebound $(basename "$g")"
+		rm -f "$f"
+	done
+	;;
+esac
+exit 0

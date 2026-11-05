@@ -1,0 +1,38 @@
+From 5d0c810b0ba8c2cf747f73d75d0164ffc72de5cb Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Thu, 5 Nov 2026 22:44:50 +0200
+Subject: [PATCH] clk: qcom: mmcc-sdm660: do not keep video_core_clk_src always
+ on
+
+video_core_clk_src is marked CLK_IS_CRITICAL. An RCG has no gate of its
+own, so the flag's only effect is a permanent enable on its parent, the
+RPM XO clock (bi_tcxo), which is voted in both the active and the sleep
+set. Linux therefore always asks the RPM to keep XO on while the CPUs
+sleep, and the SoC can never enter XO shutdown (vlow/vmin).
+
+On clover, a clk trace across s2idle shows every other bi_tcxo user (the
+display vsync and AHB clocks) dropping its vote, while bi_tcxo itself is
+never disabled; the RPM master stats show APSS shutdowns but no APSS XO
+shutdown.
+
+The Venus driver enables video_core_clk (and with it this RCG) whenever
+it uses the hardware, so the RCG need not be pinned otherwise.
+---
+ drivers/clk/qcom/mmcc-sdm660.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/clk/qcom/mmcc-sdm660.c b/drivers/clk/qcom/mmcc-sdm660.c
+index dbd3f561d..65162cb41 100644
+--- a/drivers/clk/qcom/mmcc-sdm660.c
++++ b/drivers/clk/qcom/mmcc-sdm660.c
+@@ -1087,7 +1087,6 @@ static struct clk_rcg2 video_core_clk_src = {
+ 		.parent_data = mmcc_xo_mmpll0_mmpll8_mmpll3_mmpll6_gpll0_mmpll7,
+ 		.num_parents = ARRAY_SIZE(mmcc_xo_mmpll0_mmpll8_mmpll3_mmpll6_gpll0_mmpll7),
+ 		.ops = &clk_rcg2_ops,
+-		.flags = CLK_IS_CRITICAL,
+ 	},
+ };
+ 
+-- 
+2.53.0
+

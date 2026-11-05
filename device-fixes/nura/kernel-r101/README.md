@@ -60,3 +60,29 @@ Tested by RAM boot (T27, r101b):
 
 Pins 81/82 duplicate the GIC lines of 79/80 and are rejected by the driver
 (harmless). The power-key wake is untested.
+
+## The last XO blocker: `video_core_clk_src` is `CLK_IS_CRITICAL` (test only)
+
+A clk trace across a 60 s s2idle on the installed r101 (2026-11-05):
+
+- Wi-Fi drops `rf_clk1_pin` when it disconnects.
+- The display path drops all its `bi_tcxo` children during `dpm_suspend`:
+  `vsync_clk_src`, `mdss_ahb_clk`, `ahb_clk_src`, `mnoc_ahb_clk`,
+  `bimc_smmu_ahb_clk`.
+- `bi_tcxo` itself is **never disabled**.
+
+The reason is that mmcc-sdm660 marks `video_core_clk_src` (an RCG fed from
+XO) `CLK_IS_CRITICAL`. An RCG has no gate, so the flag only pins its parent,
+the RPM XO clock, which is voted in **both** active and sleep sets. Linux
+therefore always asks the RPM to keep XO on while the CPUs sleep, which
+matches APSS shutdowns with 0 APSS XO shutdowns.
+
+`test-r102/0032-...patch` drops the flag. Built as test package r102
+(`3ff49b1a62ed21eba35d0f087f73e862`, not installed); RAM-test images in
+`backups/kernel-r101-2026-11-05/` (on the installed r101 boot.img):
+
+- `TEST28-r102-mpm.img` (`240528f1...`): r102 + MPM/system-sleep DTB; the real test
+- `TEST29-r102.img` (`b981bdc5...`): r102 + normal r101 DTB; control
+
+To check: boot, display, video (Venus) still fine; in an unplugged 60 s
+suspend, APSS *XO* shutdown count and `vlow`/`vmin` should finally move.

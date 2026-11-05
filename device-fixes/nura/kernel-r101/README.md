@@ -77,7 +77,7 @@ the RPM XO clock, which is voted in **both** active and sleep sets. Linux
 therefore always asks the RPM to keep XO on while the CPUs sleep, which
 matches APSS shutdowns with 0 APSS XO shutdowns.
 
-`test-r102/0032-...patch` drops the flag. Built as test package r102
+`test-r102/0001-clk-qcom-mmcc-sdm660-do-not-keep-video_core_clk_src-.patch` (commit 32 on top of r101) drops the flag. Built as test package r102
 (`3ff49b1a62ed21eba35d0f087f73e862`, not installed); RAM-test images in
 `backups/kernel-r101-2026-11-05/` (on the installed r101 boot.img):
 

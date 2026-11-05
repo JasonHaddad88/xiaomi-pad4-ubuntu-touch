@@ -1,18 +1,28 @@
 #!/bin/sh
 # Disable the PSCI idle states clover's firmware rejects.
 #
-# The DT describes core retention (cpu-sleep-N-0) and three cluster states
-# (cluster-sleep-*) in PSCI platform-coordinated form, but the firmware
-# refuses them ("psci: [Firmware Bug]: failed to set PC mode: -3" at boot).
-# cpuidle keeps picking them, the call returns at once, and idle cores spin:
-# ~3 million rejections per 30 s, and s2idle never actually sleeps.
-# Core power collapse (cpu-sleep-N-1) and WFI work and stay enabled.
+# The stock DT describes core retention (cpu-sleep-N-0) with the power-down
+# bit set (0x40000002) and three cluster states (cluster-sleep-*) as flattened
+# platform-coordinated states (0x400000f2/f3/f4). The firmware refuses all of
+# them, so idle cores spin: ~3 million rejections per 30 s, and s2idle never
+# really sleeps. Measured 2026-11-03: system draw 1574 -> 1133 mW.
 #
-# Measured 2026-11-03: system draw 1574 -> 1133 mW with the screen on.
+# The OSI device tree installed 2026-11-05 (see README.md) fixes the values:
+# retention is 0x00000002 and the cluster states are PSCI domain states, so
+# they no longer appear here. This script stays as a guard for the stock DT:
+# it disables retention only when its DT parameter has the power-down bit,
+# and any flattened cluster-sleep state.
+#
 # Undo: systemctl disable --now nura-cpuidle-fix.service
 v=${1:-1}
+DT=/sys/firmware/devicetree/base/cpus/idle-states
 for d in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state[0-9]*; do
-	case "$(cat "$d/name")" in
-	cpu-sleep-[0-9]-0|cluster-sleep-*) echo "$v" > "$d/disable" ;;
+	n=$(cat "$d/name")
+	case "$n" in
+	cluster-sleep-*)
+		echo "$v" > "$d/disable" ;;
+	cpu-sleep-[0-9]-0)
+		p=$(od -An -tx1 "$DT/$n/arm,psci-suspend-param" 2>/dev/null | tr -d ' \n')
+		case "$p" in 4*) echo "$v" > "$d/disable" ;; esac ;;
 	esac
 done

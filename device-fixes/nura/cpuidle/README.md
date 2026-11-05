@@ -102,3 +102,23 @@ this case (`qcom_cpr_cpu_pd_index()`). Result:
   on at suspend, remote-processor votes)
 
 Not installed yet; it is waiting for an unplugged overnight run on T22.
+
+## Installed 2026-11-05
+
+T22 then ran for 25 h, including **21 h of continuous suspend** (23:24 ->
+20:35) that cost about 32 % (99 -> 67 %), roughly **0.35 W**, against 1.4 W on
+2026-11-02/03. That is about 65 h of standby on a full charge.
+
+The OSI DTB is now installed: see [osi-dtb/](osi-dtb/). After a normal boot:
+`Initialized CPU PM domain topology using OSI mode`, retention on with 0
+rejections, both clusters in L2 retention, DVFS at 1843 / 2208 MHz, Wi-Fi up,
+no failed units.
+
+`nura-cpuidle-fix` v2 (md5 `16dae4085ebf79a0e05890d7f9f86f2c`) stays enabled as
+a guard. It disables `cpu-sleep-N-0` only when the DT parameter has the
+power-down bit, and any flattened `cluster-sleep-*`, so it does nothing under
+the OSI DTB and protects the stock one. v1 is kept on the tablet as
+`/usr/local/sbin/nura-cpuidle-fix.v1`.
+
+**Still open:** RPM `vlow`/`vmin` stay at 0, so the SoC never reaches XO
+shutdown. Something outside the CPUs keeps it up.

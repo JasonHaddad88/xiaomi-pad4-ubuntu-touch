@@ -1,0 +1,230 @@
+From ab4dcef4bffbe83b82d12c3af4ff5e0ac7e6bf58 Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Thu, 5 Nov 2026 21:19:32 +0200
+Subject: [PATCH 30/31] arm64: dts: qcom: sda660-xiaomi-clover: PSCI OSI idle,
+ RPM master stats
+
+Use the idle encoding clover's firmware accepts (from its Android
+qcom,lpm-levels) in an OS-initiated hierarchy, and expose the
+per-subsystem RPM sleep statistics. See the comment in the new dtsi.
+---
+ .../qcom/sda660-xiaomi-clover-psci-osi.dtsi   | 197 ++++++++++++++++++
+ .../boot/dts/qcom/sda660-xiaomi-clover.dts    |   1 +
+ 2 files changed, 198 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-psci-osi.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-psci-osi.dtsi b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-psci-osi.dtsi
+new file mode 100644
+index 000000000..0114d9bb3
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover-psci-osi.dtsi
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Clover: PSCI OS-initiated (OSI) CPU idle, plus read-only RPM master stats.
++ *
++ * Clover's firmware refuses the sdm630.dtsi idle parameters: core retention
++ * is described with the power-down bit set (0x40000002) and the cluster
++ * states as flattened platform-coordinated states (0x400000f2/f3/f4). Idle
++ * cores then spin on rejected PSCI calls (about 3 million every 30 s) and
++ * s2idle never sleeps. The encoding below follows clover's Android
++ * qcom,lpm-levels: CPU mode in bits 0-3, L2 mode in bits 4-7, affinity level
++ * in bits 24-25, power-down bit 30 only for power-collapse levels. The
++ * firmware only accepts a cluster state from the last core of the cluster,
++ * so the cluster states are PSCI domain states in an OSI hierarchy.
++ *
++ * Measured on clover: 21 h of s2idle at about 0.35 W (was 1.4 W).
++ */
++
++&pwr_cpu_sleep_0 {
++	arm,psci-suspend-param = <0x00000002>;
++};
++
++&perf_cpu_sleep_0 {
++	arm,psci-suspend-param = <0x00000002>;
++};
++
++&pwr_cluster_sleep_0 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000023>;
++};
++
++&pwr_cluster_sleep_1 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000033>;
++};
++
++&pwr_cluster_sleep_2 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000043>;
++};
++
++&perf_cluster_sleep_0 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000023>;
++};
++
++&perf_cluster_sleep_1 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000033>;
++};
++
++&perf_cluster_sleep_2 {
++	compatible = "domain-idle-state";
++	arm,psci-suspend-param = <0x41000043>;
++};
++
++/* cpu0-3 are the Gold (perf) cluster, cpu4-7 the Silver (pwr) cluster */
++&cpu0 {
++	cpu-idle-states = <&perf_cpu_sleep_0 &perf_cpu_sleep_1>;
++	power-domains = <&cpu_pd0>, <&apc_cprh 1>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu1 {
++	cpu-idle-states = <&perf_cpu_sleep_0 &perf_cpu_sleep_1>;
++	power-domains = <&cpu_pd1>, <&apc_cprh 1>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu2 {
++	cpu-idle-states = <&perf_cpu_sleep_0 &perf_cpu_sleep_1>;
++	power-domains = <&cpu_pd2>, <&apc_cprh 1>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu3 {
++	cpu-idle-states = <&perf_cpu_sleep_0 &perf_cpu_sleep_1>;
++	power-domains = <&cpu_pd3>, <&apc_cprh 1>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu4 {
++	cpu-idle-states = <&pwr_cpu_sleep_0 &pwr_cpu_sleep_1>;
++	power-domains = <&cpu_pd4>, <&apc_cprh 0>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu5 {
++	cpu-idle-states = <&pwr_cpu_sleep_0 &pwr_cpu_sleep_1>;
++	power-domains = <&cpu_pd5>, <&apc_cprh 0>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu6 {
++	cpu-idle-states = <&pwr_cpu_sleep_0 &pwr_cpu_sleep_1>;
++	power-domains = <&cpu_pd6>, <&apc_cprh 0>;
++	power-domain-names = "psci", "cpr";
++};
++
++&cpu7 {
++	cpu-idle-states = <&pwr_cpu_sleep_0 &pwr_cpu_sleep_1>;
++	power-domains = <&cpu_pd7>, <&apc_cprh 0>;
++	power-domain-names = "psci", "cpr";
++};
++
++/ {
++	psci {
++		cpu_pd0: power-domain-cpu0 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_perf>;
++		};
++
++		cpu_pd1: power-domain-cpu1 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_perf>;
++		};
++
++		cpu_pd2: power-domain-cpu2 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_perf>;
++		};
++
++		cpu_pd3: power-domain-cpu3 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_perf>;
++		};
++
++		cpu_pd4: power-domain-cpu4 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_pwr>;
++		};
++
++		cpu_pd5: power-domain-cpu5 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_pwr>;
++		};
++
++		cpu_pd6: power-domain-cpu6 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_pwr>;
++		};
++
++		cpu_pd7: power-domain-cpu7 {
++			#power-domain-cells = <0>;
++			power-domains = <&cluster_pd_pwr>;
++		};
++
++		cluster_pd_perf: power-domain-cluster-perf {
++			#power-domain-cells = <0>;
++			domain-idle-states = <&perf_cluster_sleep_0>,
++					     <&perf_cluster_sleep_1>,
++					     <&perf_cluster_sleep_2>;
++		};
++
++		cluster_pd_pwr: power-domain-cluster-pwr {
++			#power-domain-cells = <0>;
++			domain-idle-states = <&pwr_cluster_sleep_0>,
++					     <&pwr_cluster_sleep_1>,
++					     <&pwr_cluster_sleep_2>;
++		};
++	};
++
++	/*
++	 * Per-subsystem RPM sleep statistics (debugfs qcom_rpm_master_stats),
++	 * layout from clover's Android qcom,rpm-master-stats@778150.
++	 */
++	rpm-master-stats {
++		compatible = "qcom,rpm-master-stats";
++		qcom,rpm-msg-ram = <&apss_master_stats>,
++				   <&mpss_master_stats>,
++				   <&adsp_master_stats>,
++				   <&cdsp_master_stats>,
++				   <&tz_master_stats>;
++		qcom,master-names = "APSS", "MPSS", "ADSP", "CDSP", "TZ";
++	};
++};
++
++&{/soc@0} {
++	apss_master_stats: sram@778150 {
++		reg = <0x00778150 0x50>;
++	};
++
++	mpss_master_stats: sram@779150 {
++		reg = <0x00779150 0x50>;
++	};
++
++	adsp_master_stats: sram@77a150 {
++		reg = <0x0077a150 0x50>;
++	};
++
++	cdsp_master_stats: sram@77b150 {
++		reg = <0x0077b150 0x50>;
++	};
++
++	tz_master_stats: sram@77c150 {
++		reg = <0x0077c150 0x50>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
+index 37386d77d..dd18ef72d 100644
+--- a/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
++++ b/arch/arm64/boot/dts/qcom/sda660-xiaomi-clover.dts
+@@ -19,3 +19,4 @@ &remoteproc_mss {
+ /* CPU DVFS (CPRh + OSM). clover units are speed bin 1: Gold 2208, Silver 1843.2 MHz. */
+ #include "sdm660-cprh-osm.dtsi"
+ #include "sda660-xiaomi-clover-cpufreq-bin1.dtsi"
++#include "sda660-xiaomi-clover-psci-osi.dtsi"
+-- 
+2.53.0
+

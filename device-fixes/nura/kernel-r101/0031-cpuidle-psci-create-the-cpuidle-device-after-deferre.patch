@@ -1,0 +1,35 @@
+From 3830693c6a6156a3cbcec03cc594612a9090e16f Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Thu, 5 Nov 2026 22:15:04 +0200
+Subject: [PATCH 31/31] cpuidle: psci: create the cpuidle device after deferred
+ probing
+
+psci-cpuidle is a faux device created at device_initcall, and a faux
+device cannot defer: if the CPU PM domains are not there yet, every CPU
+fails ("CPU 0 failed to PSCI idle", "Failed to create psci-cpuidle
+device") and the system runs with no idle states at all.
+
+That happens when a CPU PM domain has a parent provided by a later
+driver. On clover the APSS system-sleep domain sits under the MPM (as on
+agatti): psci-cpuidle-domain deferred at 0.06 s, the MPM probed at
+0.8 s, psci-cpuidle gave up at 1.0 s, and the domains appeared at 1.15 s.
+
+Create the device at late_initcall_sync instead, after the deferred
+probes have been flushed.
+---
+ drivers/cpuidle/cpuidle-psci.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/cpuidle/cpuidle-psci.c b/drivers/cpuidle/cpuidle-psci.c
+index dcf20ea5e..3c489ce87 100644
+--- a/drivers/cpuidle/cpuidle-psci.c
++++ b/drivers/cpuidle/cpuidle-psci.c
+@@ -489,4 +489,4 @@ static int __init psci_idle_init(void)
+ 
+ 	return 0;
+ }
+-device_initcall(psci_idle_init);
++late_initcall_sync(psci_idle_init);
+-- 
+2.53.0
+

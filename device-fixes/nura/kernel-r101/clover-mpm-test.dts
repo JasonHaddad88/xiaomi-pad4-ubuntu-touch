@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * TEST ONLY (T25): clover with the MPM and an APSS system-sleep level, so the
+ * RPM sees the CPU subsystem power down and can consider XO shutdown.
+ *
+ * MPM values from clover's Android qcom,mpm@7781b8 (qcom,mpm-v2):
+ * vMPM at 0x7781b8, IPC bit 1 on apcs_glb, interrupt SPI 171, 96 pins.
+ * Pin map from its qcom,gic-map, converted from GIC hwirq to SPI (-32).
+ * System PC from its qcom,lpm-levels system-pc: psci-mode 3 at bit 8,
+ * affinity level 2, on top of L2 PC (0x41000043) -> 0x42000343.
+ *
+ * The mainline MPM driver does not program the MPM wakeup timer, so a timer
+ * cannot wake the SoC from this level. min-residency is set huge so the
+ * idle governor never picks it; s2idle (always the deepest state) does.
+ */
+#include "sda660-xiaomi-clover.dts"
+
+/ {
+	mpm: interrupt-controller {
+		compatible = "qcom,mpm";
+		qcom,rpm-msg-ram = <&apss_mpm>;
+		interrupts = <GIC_SPI 171 IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&apcs_glb 1>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		#power-domain-cells = <0>;
+		interrupt-parent = <&intc>;
+		qcom,mpm-pin-count = <96>;
+		qcom,mpm-pin-map = <2 184>,	/* tsens */
+				   <52 243>,	/* usb */
+				   <61 177>,
+				   <79 347>,	/* usb hs phy */
+				   <80 348>,
+				   <81 347>,
+				   <82 348>,
+				   <87 326>,	/* spmi periph_irq: power key, rtc */
+				   <91 487>;
+	};
+
+	domain-idle-states {
+		system_sleep: system-sleep {
+			compatible = "domain-idle-state";
+			arm,psci-suspend-param = <0x42000343>;
+			entry-latency-us = <1000>;
+			exit-latency-us = <4506>;
+			min-residency-us = <0xf0000000>;
+		};
+	};
+
+	psci {
+		system_pd: power-domain-system {
+			#power-domain-cells = <0>;
+			power-domains = <&mpm>;
+			domain-idle-states = <&system_sleep>;
+		};
+	};
+};
+
+&cluster_pd_perf {
+	power-domains = <&system_pd>;
+};
+
+&cluster_pd_pwr {
+	power-domains = <&system_pd>;
+};
+
+&{/soc@0} {
+	apss_mpm: sram@7781b8 {
+		reg = <0x007781b8 0x48>;
+	};
+};
+
+&spmi_bus {
+	/delete-property/ interrupts;
+	interrupts-extended = <&mpm 87 IRQ_TYPE_LEVEL_HIGH>;
+};
+
+&tlmm {
+	wakeup-parent = <&mpm>;
+};

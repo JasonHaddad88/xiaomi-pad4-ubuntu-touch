@@ -1,0 +1,28 @@
+From 7c4d32fc9343dfe7278b7a7603a6944883e2ed28 Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Thu, 5 Nov 2026 21:19:31 +0200
+Subject: [PATCH 28/31] drm/msm/a5xx: use the speed-bin catalog on SDA660 too
+
+SDA660 boards (clover: "qcom,sda660") fell through to the legacy
+check_speed_bin(), which computes 1 << fuse. Clover's fuse is 135, so the
+out-of-range shift became 0x80 and only the OPPs up to 370 MHz were
+enabled. With the catalog, fuse 135 maps to bin 4: 465 and 588 MHz.
+---
+ drivers/gpu/drm/msm/adreno/a5xx_gpu.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a5xx_gpu.c b/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
+index 4cf09727c..a02c37ddd 100644
+--- a/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a5xx_gpu.c
+@@ -1803,6 +1803,7 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
+ 	 * are ported too.
+ 	 */
+ 	if (of_machine_is_compatible("qcom,sdm630") ||
++	    of_machine_is_compatible("qcom,sda660") ||
+ 	    of_machine_is_compatible("qcom,sdm636") ||
+ 	    of_machine_is_compatible("qcom,sdm660")) {
+ 		ret = a5xx_set_supported_hw(&pdev->dev, config->info);
+-- 
+2.53.0
+

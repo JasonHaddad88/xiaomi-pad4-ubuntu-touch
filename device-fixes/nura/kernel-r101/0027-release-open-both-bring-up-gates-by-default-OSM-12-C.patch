@@ -1,0 +1,47 @@
+From bfcdbb00555a7bbe19bd9fe285d077f32d022a72 Mon Sep 17 00:00:00 2001
+From: port <a@b>
+Date: Sat, 31 Oct 2026 22:33:57 +0200
+Subject: [PATCH 27/31] release: open both bring-up gates by default (OSM 12,
+ CPRh 5)
+
+The everyday kernel must run the full sequence without extra cmdline
+options. Both gates stay available: booting with
+qcom_cpufreq_hw.osm_setup_stop=0 is the recovery path.
+---
+ drivers/cpufreq/qcom-cpufreq-hw.c | 4 ++--
+ drivers/pmdomain/qcom/cpr3.c      | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/cpufreq/qcom-cpufreq-hw.c b/drivers/cpufreq/qcom-cpufreq-hw.c
+index 6ba798a82..4b012c57f 100644
+--- a/drivers/cpufreq/qcom-cpufreq-hw.c
++++ b/drivers/cpufreq/qcom-cpufreq-hw.c
+@@ -306,8 +306,8 @@ static bool icc_scaling_enabled;
+  * kernel command line and let the last surviving boot say where it died.
+  * Zero programs nothing, which is the known-good control.
+  */
+-/* clover test builds: closed by default. Open it per boot on the cmdline. */
+-static int osm_setup_stop;
++/* All steps: cpufreq works on SDM660 since the CPRh/OSM port (clover T11). */
++static int osm_setup_stop = 12;
+ module_param(osm_setup_stop, int, 0444);
+ MODULE_PARM_DESC(osm_setup_stop,
+ 		 "stop OSM programming after step N (0: program nothing)");
+diff --git a/drivers/pmdomain/qcom/cpr3.c b/drivers/pmdomain/qcom/cpr3.c
+index 9f6a46e36..3b65d2570 100644
+--- a/drivers/pmdomain/qcom/cpr3.c
++++ b/drivers/pmdomain/qcom/cpr3.c
+@@ -297,8 +297,8 @@ struct cpr_desc {
+  * half from the first register write so the last log line names the phase.
+  * Zero touches no hardware at all, which is the known-good control.
+  */
+-/* clover test builds: closed by default. Open it per boot on the cmdline. */
+-static int cprh_init_stop;
++/* All phases (5): phase 4 alone writes the table but never marks the thread set up. */
++static int cprh_init_stop = 5;
+ module_param(cprh_init_stop, int, 0444);
+ MODULE_PARM_DESC(cprh_init_stop,
+ 		 "stop CPRh setup after phase N (0: no hardware access)");
+-- 
+2.53.0
+

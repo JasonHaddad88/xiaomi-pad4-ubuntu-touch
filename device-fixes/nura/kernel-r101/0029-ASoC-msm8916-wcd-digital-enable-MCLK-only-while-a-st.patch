@@ -1,0 +1,90 @@
+From 38dc7899798eef812ac459c4766dbe943dcb3af3 Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Thu, 5 Nov 2026 21:19:32 +0200
+Subject: [PATCH 29/31] ASoC: msm8916-wcd-digital: enable MCLK only while a
+ stream is open
+
+The codec enabled MCLK in probe and held it until remove. On SDM660 that
+clock is LPASS_CLK_ID_INT_MCLK_0 from the audio DSP, so the DSP never
+power collapsed (RPM master stats: 2 ADSP shutdowns since boot; with the
+codec unbound it started sleeping at once), which also rules out SoC XO
+shutdown. Take MCLK in the DAI startup and drop it in shutdown.
+---
+ sound/soc/codecs/msm8916-wcd-digital.c | 27 ++++++++++++++++----------
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+diff --git a/sound/soc/codecs/msm8916-wcd-digital.c b/sound/soc/codecs/msm8916-wcd-digital.c
+index cfadea2aa..a298e5494 100644
+--- a/sound/soc/codecs/msm8916-wcd-digital.c
++++ b/sound/soc/codecs/msm8916-wcd-digital.c
+@@ -1073,8 +1073,20 @@ static int msm8916_wcd_digital_startup(struct snd_pcm_substream *substream,
+ 	struct snd_soc_component *component = dai->component;
+ 	struct msm8916_wcd_digital_priv *msm8916_wcd;
+ 	unsigned long mclk_rate;
++	int ret;
+ 
+ 	msm8916_wcd = snd_soc_component_get_drvdata(component);
++
++	/*
++	 * MCLK comes from the audio DSP. Holding it while idle keeps the
++	 * DSP from ever power collapsing, so take it per stream.
++	 */
++	ret = clk_prepare_enable(msm8916_wcd->mclk);
++	if (ret) {
++		dev_err(component->dev, "failed to enable mclk %d\n", ret);
++		return ret;
++	}
++
+ 	snd_soc_component_update_bits(component, LPASS_CDC_CLK_MCLK_CTL,
+ 			    MCLK_CTL_MCLK_EN_MASK,
+ 			    MCLK_CTL_MCLK_EN_ENABLE);
+@@ -1104,8 +1116,12 @@ static int msm8916_wcd_digital_startup(struct snd_pcm_substream *substream,
+ static void msm8916_wcd_digital_shutdown(struct snd_pcm_substream *substream,
+ 					 struct snd_soc_dai *dai)
+ {
++	struct msm8916_wcd_digital_priv *msm8916_wcd =
++		snd_soc_component_get_drvdata(dai->component);
++
+ 	snd_soc_component_update_bits(dai->component, LPASS_CDC_CLK_PDM_CTL,
+ 			    LPASS_CDC_CLK_PDM_CTL_PDM_CLK_SEL_MASK, 0);
++	clk_disable_unprepare(msm8916_wcd->mclk);
+ }
+ 
+ static const struct snd_soc_dai_ops msm8916_wcd_digital_dai_ops = {
+@@ -1195,24 +1211,16 @@ static int msm8916_wcd_digital_probe(struct platform_device *pdev)
+ 		return ret;
+ 	}
+ 
+-	ret = clk_prepare_enable(priv->mclk);
+-	if (ret < 0) {
+-		dev_err(dev, "failed to enable mclk %d\n", ret);
+-		goto err_clk;
+-	}
+-
+ 	dev_set_drvdata(dev, priv);
+ 
+ 	ret = devm_snd_soc_register_component(dev, &msm8916_wcd_digital,
+ 				      msm8916_wcd_digital_dai,
+ 				      ARRAY_SIZE(msm8916_wcd_digital_dai));
+ 	if (ret)
+-		goto err_mclk;
++		goto err_clk;
+ 
+ 	return 0;
+ 
+-err_mclk:
+-	clk_disable_unprepare(priv->mclk);
+ err_clk:
+ 	clk_disable_unprepare(priv->ahbclk);
+ 	return ret;
+@@ -1222,7 +1230,6 @@ static void msm8916_wcd_digital_remove(struct platform_device *pdev)
+ {
+ 	struct msm8916_wcd_digital_priv *priv = dev_get_drvdata(&pdev->dev);
+ 
+-	clk_disable_unprepare(priv->mclk);
+ 	clk_disable_unprepare(priv->ahbclk);
+ }
+ 
+-- 
+2.53.0
+

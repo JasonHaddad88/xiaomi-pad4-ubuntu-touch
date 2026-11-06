@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * TEST ONLY (T30): T28 (MPM + APSS system sleep) plus the multimedia clock
+ * controller fed from the RPM's active-only XO vote.
+ *
+ * A clk trace across s2idle shows mdss_ahb_clk -> ahb_clk_src -> bi_tcxo
+ * disabled but never unprepared, and clk-smd-rpm sends its RPM vote in
+ * prepare/unprepare. So the display path keeps a sleep-set XO vote, and the
+ * RPM cannot shut XO down while the CPUs sleep. The display only runs while
+ * the CPUs are awake, which is what the active-only vote covers.
+ */
+#include "clover-mpm-test.dts"
+
+&mmcc {
+	clocks = <&rpmcc RPM_SMD_XO_A_CLK_SRC>,
+		 <&sleep_clk>,
+		 <&gcc GCC_MMSS_GPLL0_CLK>,
+		 <&gcc GCC_MMSS_GPLL0_DIV_CLK>,
+		 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
+		 <0>,
+		 <0>;
+};

@@ -86,3 +86,28 @@ matches APSS shutdowns with 0 APSS XO shutdowns.
 
 To check: boot, display, video (Venus) still fine; in an unplugged 60 s
 suspend, APSS *XO* shutdown count and `vlow`/`vmin` should finally move.
+
+### Results on clover (2026-11-05/06): deep sleep stops here
+
+- **T28** (r102 + MPM layer): `video_core_clk_src` stays off; Venus still
+  probes (`/dev/video0`, `/dev/video1`). The power key wakes it from the
+  system-sleep level. A second clk trace shows `bi_tcxo` now *disabled* in
+  suspend but still *prepared*: `mdss_ahb_clk -> ahb_clk_src -> bi_tcxo` is
+  never unprepared, and clk-smd-rpm votes in prepare/unprepare.
+- **T30** (`test-r102/clover-xoa-test.dts`: T28 plus `mmcc`'s XO input switched
+  to the active-only `RPM_SMD_XO_A_CLK_SRC`): `bi_tcxo` has 0 enables and 0
+  prepares even with the screen on, and the display works. It then ran
+  overnight from RAM:
+  - one suspend lasted 00:00 -> 08:27
+  - RPM master stats: **APSS XO shutdown 4 (8.5 h)**; ADSP, MPSS and CDSP
+    each about 9.3 h with XO released
+  - but `vlow`/`vmin` stayed at **0**, and `vlow` shows
+    `Client Votes: 0x81838183`
+  - battery 76 % -> 62 % in 9.35 h, about **0.33 W** asleep, no better than
+    the installed r101 (about 0.35 W)
+
+So every processor now releases XO, yet the SoC still never enters XO
+shutdown; some non-master RPM resource vote (rails or regulators, most
+likely) blocks it. Stopped here: no measurable gain for more risk. The MPM
+layer, r102 and the XO_A change are **not installed**. The Wi-Fi firmware
+crashed once on T30's morning wake and recovered.

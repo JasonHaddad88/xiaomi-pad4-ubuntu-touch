@@ -1,0 +1,111 @@
+From a3a173419c7ce433c6063aeac0cab9fe1d4121ac Mon Sep 17 00:00:00 2001
+From: clover porter <clover@localhost>
+Date: Sat, 7 Nov 2026 19:56:38 +0200
+Subject: [PATCH] power: supply: qcom_smbx: add charge_behaviour (auto,
+ inhibit-charge)
+
+The charger is under software control (CHG_EN_SRC_BIT cleared), and
+CHARGING_ENABLE_CMD starts and stops charging while USBIN keeps
+supplying the system through the power path. Expose it as the standard
+charge_behaviour property so userspace can hold the battery at a charge
+limit or run the device from USB without charging ("bypass").
+---
+ drivers/power/supply/qcom_smbx.c | 47 ++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/drivers/power/supply/qcom_smbx.c b/drivers/power/supply/qcom_smbx.c
+index 78de88113..6aca65805 100644
+--- a/drivers/power/supply/qcom_smbx.c
++++ b/drivers/power/supply/qcom_smbx.c
+@@ -412,6 +412,7 @@ static enum power_supply_property smb_properties[] = {
+ 	POWER_SUPPLY_PROP_HEALTH,
+ 	POWER_SUPPLY_PROP_ONLINE,
+ 	POWER_SUPPLY_PROP_USB_TYPE,
++	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
+ };
+ 
+ static int smb_get_prop_usb_online(struct smb_chip *chip, int *val)
+@@ -654,6 +655,45 @@ static int smb_get_prop_health(struct smb_chip *chip, int *val)
+ 	}
+ }
+ 
++/*
++ * Charging is under software control (CHG_EN_SRC_BIT is cleared in the init
++ * sequence), so CHARGING_ENABLE_CMD starts and stops charging. With it
++ * cleared, USBIN keeps supplying the system through the power path and the
++ * battery is neither charged nor, unless the load exceeds the input current
++ * limit, discharged: "bypass".
++ */
++static int smb_get_charge_behaviour(struct smb_chip *chip, int *val)
++{
++	unsigned int cmd;
++	int rc;
++
++	rc = regmap_read(chip->regmap, chip->base + CHARGING_ENABLE_CMD, &cmd);
++	if (rc < 0)
++		return rc;
++
++	*val = (cmd & CHARGING_ENABLE_CMD_BIT) ?
++		POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO :
++		POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
++	return 0;
++}
++
++static int smb_set_charge_behaviour(struct smb_chip *chip, int val)
++{
++	switch (val) {
++	case POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO:
++		return regmap_update_bits(chip->regmap,
++					  chip->base + CHARGING_ENABLE_CMD,
++					  CHARGING_ENABLE_CMD_BIT,
++					  CHARGING_ENABLE_CMD_BIT);
++	case POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE:
++		return regmap_update_bits(chip->regmap,
++					  chip->base + CHARGING_ENABLE_CMD,
++					  CHARGING_ENABLE_CMD_BIT, 0);
++	default:
++		return -EINVAL;
++	}
++}
++
+ static int smb_get_property(struct power_supply *psy,
+ 			     enum power_supply_property psp,
+ 			     union power_supply_propval *val)
+@@ -683,6 +723,8 @@ static int smb_get_property(struct power_supply *psy,
+ 		return smb_get_prop_health(chip, &val->intval);
+ 	case POWER_SUPPLY_PROP_USB_TYPE:
+ 		return smb_apsd_get_charger_type(chip, &val->intval);
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
++		return smb_get_charge_behaviour(chip, &val->intval);
+ 	default:
+ 		dev_err(chip->dev, "invalid property: %d\n", psp);
+ 		return -EINVAL;
+@@ -701,6 +743,8 @@ static int smb_set_property(struct power_supply *psy,
+ 					  USBIN_SUSPEND_BIT, !val->intval);
+ 	case POWER_SUPPLY_PROP_CURRENT_MAX:
+ 		return smb_set_current_limit(chip, val->intval);
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
++		return smb_set_charge_behaviour(chip, val->intval);
+ 	default:
+ 		dev_err(chip->dev, "No setter for property: %d\n", psp);
+ 		return -EINVAL;
+@@ -713,6 +757,7 @@ static int smb_property_is_writable(struct power_supply *psy,
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_STATUS:
+ 	case POWER_SUPPLY_PROP_CURRENT_MAX:
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+ 		return 1;
+ 	default:
+ 		return 0;
+@@ -784,6 +829,8 @@ static const struct power_supply_desc smb_psy_desc = {
+ 	.get_property = smb_get_property,
+ 	.set_property = smb_set_property,
+ 	.property_is_writeable = smb_property_is_writable,
++	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO) |
++			     BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
+ };
+ 
+ /* Init sequence derived from vendor downstream driver */
+-- 
+2.53.0
+

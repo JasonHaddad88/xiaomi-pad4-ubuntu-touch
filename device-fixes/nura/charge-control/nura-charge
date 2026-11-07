@@ -1,0 +1,76 @@
+#!/bin/sh
+# nura-charge: battery charge limit and bypass for clover (PM660 / qcom_smbx).
+#
+#   nura-charge status          show mode, battery and charger state
+#   nura-charge limit [N [R]]   stop charging at N% (default 80), resume at R% (default N-5)
+#   nura-charge bypass          run from USB, hold the battery where it is
+#                               (still charges if it falls below 20%)
+#   nura-charge full            normal charging to 100%
+#   nura-charge apply           apply the configured mode once (used by the service)
+#
+# Needs the charge_behaviour control from the patched qcom_smbx module
+# (device-fixes/nura/charge-control/README.md). Config: /etc/nura-charge.conf
+CONF=/etc/nura-charge.conf
+C=/sys/class/power_supply/pm660-charger
+B=/sys/class/power_supply/qcom-battery
+MODE=limit; LIMIT=80; RESUME=75
+[ -r $CONF ] && . $CONF
+
+save() {
+	printf 'MODE=%s\nLIMIT=%s\nRESUME=%s\n' "$MODE" "$LIMIT" "$RESUME" > $CONF
+}
+
+behaviour() {
+	sed -n 's/.*\[\(.*\)\].*/\1/p' $C/charge_behaviour 2>/dev/null
+}
+
+set_behaviour() {
+	[ -w $C/charge_behaviour ] || { echo "charge_behaviour control missing (needs the patched charger driver)" >&2; return 1; }
+	[ "$(behaviour)" = "$1" ] || echo "$1" > $C/charge_behaviour
+}
+
+apply() {
+	[ -w $C/charge_behaviour ] || return 0
+	cap=$(cat $B/capacity)
+	case "$MODE" in
+	full)
+		set_behaviour auto ;;
+	bypass)
+		if [ "$cap" -lt 20 ]; then set_behaviour auto
+		elif [ "$cap" -ge 25 ]; then set_behaviour inhibit-charge
+		fi ;;
+	*)
+		if [ "$cap" -ge "$LIMIT" ]; then set_behaviour inhibit-charge
+		elif [ "$cap" -le "$RESUME" ]; then set_behaviour auto
+		fi ;;
+	esac
+}
+
+case "$1" in
+status|"")
+	echo "mode: $MODE (limit $LIMIT%, resume $RESUME%)"
+	echo "battery: $(cat $B/capacity)% $(cat $B/status), $(( $(cat $B/current_now) / 1000 )) mA"
+	echo "charger: online=$(cat $C/online) charging=$(behaviour)"
+	exit 0 ;;
+limit)
+	MODE=limit; LIMIT=${2:-80}; RESUME=${3:-$((LIMIT - 5))} ;;
+bypass)
+	MODE=bypass ;;
+full)
+	MODE=full ;;
+apply)
+	apply; exit 0 ;;
+*)
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
+case "$LIMIT$RESUME" in *[!0-9]*) echo "limit and resume must be numbers"; exit 1 ;; esac
+[ "$RESUME" -lt "$LIMIT" ] && [ "$LIMIT" -le 100 ] && [ "$RESUME" -ge 20 ] || { echo "need 20 <= resume < limit <= 100"; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
+save
+# a manual change takes effect now, without waiting for the hysteresis
+case "$MODE" in
+full) set_behaviour auto ;;
+bypass) [ "$(cat $B/capacity)" -lt 20 ] && set_behaviour auto || set_behaviour inhibit-charge ;;
+limit) [ "$(cat $B/capacity)" -ge "$LIMIT" ] && set_behaviour inhibit-charge || set_behaviour auto ;;
+esac
+exec "$0" status

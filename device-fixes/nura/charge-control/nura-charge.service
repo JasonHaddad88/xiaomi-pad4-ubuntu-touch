@@ -1,0 +1,13 @@
+[Unit]
+Description=Battery charge limit / bypass for clover (nura-charge)
+After=sysinit.target
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'while :; do /usr/local/bin/nura-charge apply; sleep 30; done'
+ExecStopPost=/bin/sh -c 'echo auto > /sys/class/power_supply/pm660-charger/charge_behaviour 2>/dev/null; true'
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

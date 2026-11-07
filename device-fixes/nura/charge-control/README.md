@@ -1,4 +1,8 @@
-# Charge limit and bypass for clover (installed 2026-11-07)
+# Charge limit and bypass for clover (REVERTED 2026-11-07, kept as a record)
+
+**Not installed.** Removed at the owner's request the same day: `nura-charge.service`, `/usr/local/bin/nura-charge` and `/etc/nura-charge.conf` deleted, and the kernel reinstalled as **r101** (boot.img `1389864848923ecbf36518767c20f795`, byte-identical to before; stock `qcom_smbx`, no `charge_behaviour`). `/boot/boot.img.r103` was kept on the tablet.
+
+Why it was paused: the fuel gauge (`pmi8998_fg`, no battery profile loaded on mainline) overstates the charge while charging. The limit stopped at a displayed 80 %, but on unplug the gauge corrected from 78 % to 65 % within 40 s (3.90 V at rest is about 55-60 % for this 4.4 V cell). A real limit needs either a resting-voltage criterion (about 4.14 V for 80 %) or the battery profile from Android's `qcom,zql5018_battery_6000mah` (224-byte `qcom,fg-profile-data`) loaded into the gauge.
 
 ## Pieces
 

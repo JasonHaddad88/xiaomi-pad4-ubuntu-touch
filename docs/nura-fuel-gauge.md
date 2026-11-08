@@ -99,3 +99,39 @@ Plan:
   reload its own profile.
 - Charging safety does not depend on the profile. The charger (`qcom_smbx`)
   sets the float voltage and current limits itself.
+
+## Test load, 2026-11-08 (owner's go-ahead: "BUILD AND RUN")
+
+- **Loader:** `device-fixes/nura/fuel-gauge/nura_fgload.c`, with the profile
+  data in `nura_fgload_data.h`.
+- **Build:** debug kernel package r105 (branch r101dbg). The module was loaded
+  with `insmod` only. The kernel stays r101.
+- **Commands:** `echo check|load|restore > /sys/kernel/debug/nura_fgload/control`.
+  `restore` writes back the bootloader profile and the voltage values saved on
+  2026-11-08.
+- **Interrupts:** the mainline DT only lists `soc-delta`. The module maps the
+  `soc-update` and `soc-ready` batt_soc interrupts itself, and only for the
+  length of a load.
+  - `soc-update` makes the write atomic: it starts right after an FG cycle.
+  - `soc-ready` ends the gauge restart.
+
+Result, charging from the laptop at 99 %:
+
+```
+before: profile bootloader (2879 mAh), integrity 0x03, vbatt_full 4349 mV, float 4187 mV
+loading zql5018 profile
+profile written and verified, restarting FG
+SOC_READY after restart                       (0.33 s after GO)
+after:  profile zql5018 (6000 mAh), nom_cap 5978 mAh, integrity 0x09,
+        vbatt_full 4389 mV, float 4390 mV
+```
+
+- The whole load took under 1.1 s, with no IMA errors. A full 128-word dump
+  afterwards read back without an error.
+- The charge current rose for about a minute after the gauge restart
+  (180 → 390 mA, at 4.385 V), then settled (214 mA at 4.364 V).
+- The voltage stayed under the pack's 4.40 V maximum. The charger's own limit
+  is unchanged.
+
+Dumps (local): `backups/fg-2026-11-08/sram-before-load.txt` and
+`sram-after-load.txt`.

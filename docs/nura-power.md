@@ -31,7 +31,14 @@ undo are in [device-fixes/nura/cpuidle/README.md](../device-fixes/nura/cpuidle/R
 (`qcom_stats` `vlow`/`vmin`) stay at 0, so the SoC still never reaches XO
 shutdown. The deeper fix is a hierarchical PSCI (OSI) device tree.
 
-## Wi-Fi firmware crashes on every disconnect (not fixed; it recovers)
+## Wi-Fi firmware crashes on every disconnect (FIXED 2026-11-12)
+
+**Fixed** by a one-line ath10k change (the driver set the TXBF vdev parameter
+after vdev down), installed as a module override. See
+`device-fixes/nura/wifi-disconnect-crash/README.md`. The journal also showed
+that the crash predates 2026-10-31: the oldest kernel in it (`#3`, built
+2026-10-21) crashes the same way. The notes below are the record from before
+the fix.
 
 Since 2026-10-31, every disconnect crashes the WCN3990 firmware, which runs
 on the modem DSP (`qcom-q6v5-mss: fatal error received:

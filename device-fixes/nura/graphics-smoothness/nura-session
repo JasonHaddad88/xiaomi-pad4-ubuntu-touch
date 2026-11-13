@@ -1,0 +1,7 @@
+#!/bin/sh
+# Nura on clover (Adreno 512): session wrapper, run by phoc in place of
+# gnome-session (see /etc/profile.d/zz-nura-graphics.sh). It marks everything
+# started below it (the shell and all apps), so that the profile script gives
+# them their graphics settings. phoc itself is above it and keeps its own.
+export NURA_SESSION=1
+exec gnome-session "$@"

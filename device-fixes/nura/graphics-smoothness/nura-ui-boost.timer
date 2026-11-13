@@ -1,0 +1,10 @@
+[Unit]
+Description=Nura: apply the interface CPU floor after login and keep it applied
+
+[Timer]
+OnBootSec=25s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

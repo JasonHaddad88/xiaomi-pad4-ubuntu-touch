@@ -1,0 +1,6 @@
+[Unit]
+Description=Nura: CPU utilisation floor for the compositor, shell and apps
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nura-ui-boost

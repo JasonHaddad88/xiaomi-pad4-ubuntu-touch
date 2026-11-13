@@ -1,0 +1,33 @@
+#!/bin/sh
+# Nura on clover: give the compositor, the shell and the apps a CPU
+# utilisation floor (uclamp.min), so the CPU frequency ramps up at once when
+# the interface starts to move. Values are percent of the biggest core.
+# Idempotent; run by nura-ui-boost.timer. Remove the timer to undo (the
+# values go back to 0 at the next boot).
+SHELL_MIN=50.00   # phoc (compositor) and phosh (shell)
+APP_MIN=37.50     # applications
+C=/sys/fs/cgroup
+
+set_min() {
+	[ -w "$1/cpu.uclamp.min" ] || return 0
+	[ "$(cat "$1/cpu.uclamp.min")" = "$2" ] || echo "$2" > "$1/cpu.uclamp.min"
+}
+
+# every phoc: the login greeter has its own, before the user session starts
+for P in $(pgrep -x phoc); do
+
+SCOPE=$C$(cut -d: -f3 "/proc/$P/cgroup")     # .../user-N.slice/session-X.scope
+USLICE=$(dirname "$SCOPE")
+case "$USLICE" in */user.slice/user-*.slice) ;; *) continue ;; esac
+
+# A group's effective floor is capped by its parents, so set the whole chain.
+set_min "$C/user.slice" "$SHELL_MIN"
+set_min "$USLICE" "$SHELL_MIN"
+set_min "$SCOPE" "$SHELL_MIN"
+for S in "$USLICE"/user@*.service; do
+	[ -d "$S" ] || continue
+	set_min "$S" "$SHELL_MIN"
+	set_min "$S/session.slice" "$SHELL_MIN"
+	set_min "$S/app.slice" "$APP_MIN"
+done
+done
